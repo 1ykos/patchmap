@@ -16,3 +16,5 @@ of interpolation search leading to an improved upper bound when retrieving keys 
 O(log(n)) compared to O(n) in case of the usual hashmap implementation.
 
 If you are interested using this container contact me.
+
+Compile with -mpclmul -std=c++17
