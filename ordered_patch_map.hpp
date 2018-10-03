@@ -23,8 +23,10 @@ namespace wmath{
   using std::cout;
   using std::enable_if;
   using std::endl;
+  using std::get;
   using std::index_sequence;
   using std::index_sequence_for;
+  using std::is_trivially_copyable;
   using std::is_unsigned;
   using std::iterator;
   using std::iterator_traits;
@@ -34,6 +36,7 @@ namespace wmath{
   using std::random_access_iterator_tag;
   using std::result_of;
   using std::swap;
+  using std::tuple;
 
   template <typename T>
   constexpr size_t digits(const T& n=0){
@@ -57,6 +60,22 @@ namespace wmath{
     const T r1 = t4+(t2<<N);
     const T r0 = (r1<t4)+(t4<t3)+(t1>>N)+(t2>>N)+t0;
     return {r0,r1};
+  }
+  
+  template <typename T,typename S>
+  typename std::enable_if<std::is_unsigned<T>::value,T>::type
+  constexpr ror(const T n, const S i){
+    const T m = (std::numeric_limits<T>::digits-1);
+    const T c = i&m;
+    return (n>>c)|(n<<((-c)&m));
+  }
+
+  template <typename T,typename S>
+  typename std::enable_if<std::is_unsigned<T>::value,T>::type
+  constexpr rol(const T n, const S i){
+    const T m = (std::numeric_limits<T>::digits-1);
+    const T c = i&m;
+    return (n<<c)|(n>>((-c)&m));
   }
 
 #ifdef __SIZEOF_INT128__
@@ -124,6 +143,338 @@ namespace wmath{
   typename std::enable_if<std::is_unsigned<T>::value,T>::type
   constexpr bitmask_lower(const T& lower){
     return T(0)-T(1)<<lower;
+  }
+  
+  template <typename T>
+  typename std::enable_if<std::is_unsigned<T>::value,T>::type
+  constexpr alternating_bitmask(const size_t step){
+    T mask(0);
+    for (size_t i=0;i<digits<T>();i+=2*step){
+      mask|=(~T(0)>>(digits<T>()-step))<<i;
+    }
+    return mask;
+  }
+
+  template<class T, class U = typename std::make_unsigned<T>::type>
+  constexpr T bswap(T n){
+    for (size_t i=digits<unsigned char>();i<digits<T>();i*=2){
+      n = ((n&(~(alternating_bitmask<T>(i))))>>i)|
+          ((n&( (alternating_bitmask<T>(i))))<<i);
+    }
+    return n;
+  }
+
+#if __GNUC__ > 3 || __clang__
+  constexpr uint16_t bswap(uint16_t n){
+    return __builtin_bswap16(n);
+  }
+
+  constexpr uint32_t bswap(uint32_t n){
+    return __builtin_bswap32(n);
+  }
+
+  constexpr uint64_t bswap(uint64_t n){
+    return __builtin_bswap64(n);
+  }
+  
+  constexpr int16_t bswap(int16_t n){
+    return __builtin_bswap16(n);
+  }
+
+  constexpr int32_t bswap(int32_t n){
+    return __builtin_bswap32(n);
+  }
+
+  constexpr int64_t bswap(int64_t n){
+    return __builtin_bswap64(n);
+  }
+#endif
+
+  template<class T,size_t step=1,class U = typename std::make_unsigned<T>::type>
+  constexpr U reflect(T n) {
+    for (size_t i=step;i<digits<unsigned char>();i*=2){ 
+      n = ((n&(~(alternating_bitmask<T>(i))))>>i)|
+        ((n&( (alternating_bitmask<T>(i))))<<i);
+    }
+    return bswap(n);
+  }
+
+  uint8_t inline reflect(const uint8_t n){
+    switch (n){
+      case 0b00000000: return 0b00000000;
+      case 0b00000001: return 0b10000000;
+      case 0b00000010: return 0b01000000;
+      case 0b00000011: return 0b11000000;
+      case 0b00000100: return 0b00100000;
+      case 0b00000101: return 0b10100000;
+      case 0b00000110: return 0b01100000;
+      case 0b00000111: return 0b11100000;
+      case 0b00001000: return 0b00010000;
+      case 0b00001001: return 0b10010000;
+      case 0b00001010: return 0b01010000;
+      case 0b00001011: return 0b11010000;
+      case 0b00001100: return 0b00110000;
+      case 0b00001101: return 0b10110000;
+      case 0b00001110: return 0b01110000;
+      case 0b00001111: return 0b11110000;
+
+      case 0b00010000: return 0b00001000;
+      case 0b00010001: return 0b10001000;
+      case 0b00010010: return 0b01001000;
+      case 0b00010011: return 0b11001000;
+      case 0b00010100: return 0b00101000;
+      case 0b00010101: return 0b10101000;
+      case 0b00010110: return 0b01101000;
+      case 0b00010111: return 0b11101000;
+      case 0b00011000: return 0b00011000;
+      case 0b00011001: return 0b10011000;
+      case 0b00011010: return 0b01011000;
+      case 0b00011011: return 0b11011000;
+      case 0b00011100: return 0b00111000;
+      case 0b00011101: return 0b10111000;
+      case 0b00011110: return 0b01111000;
+      case 0b00011111: return 0b11111000;
+
+      case 0b00100000: return 0b00000100;
+      case 0b00100001: return 0b10000100;
+      case 0b00100010: return 0b01000100;
+      case 0b00100011: return 0b11000100;
+      case 0b00100100: return 0b00100100;
+      case 0b00100101: return 0b10100100;
+      case 0b00100110: return 0b01100100;
+      case 0b00100111: return 0b11100100;
+      case 0b00101000: return 0b00010100;
+      case 0b00101001: return 0b10010100;
+      case 0b00101010: return 0b01010100;
+      case 0b00101011: return 0b11010100;
+      case 0b00101100: return 0b00110100;
+      case 0b00101101: return 0b10110100;
+      case 0b00101110: return 0b01110100;
+      case 0b00101111: return 0b11110100;
+
+      case 0b00110000: return 0b00001100;
+      case 0b00110001: return 0b10001100;
+      case 0b00110010: return 0b01001100;
+      case 0b00110011: return 0b11001100;
+      case 0b00110100: return 0b00101100;
+      case 0b00110101: return 0b10101100;
+      case 0b00110110: return 0b01101100;
+      case 0b00110111: return 0b11101100;
+      case 0b00111000: return 0b00011100;
+      case 0b00111001: return 0b10011100;
+      case 0b00111010: return 0b01011100;
+      case 0b00111011: return 0b11011100;
+      case 0b00111100: return 0b00111100;
+      case 0b00111101: return 0b10111100;
+      case 0b00111110: return 0b01111100;
+      case 0b00111111: return 0b11111100;
+
+      case 0b01000000: return 0b00000010;
+      case 0b01000001: return 0b10000010;
+      case 0b01000010: return 0b01000010;
+      case 0b01000011: return 0b11000010;
+      case 0b01000100: return 0b00100010;
+      case 0b01000101: return 0b10100010;
+      case 0b01000110: return 0b01100010;
+      case 0b01000111: return 0b11100010;
+      case 0b01001000: return 0b00010010;
+      case 0b01001001: return 0b10010010;
+      case 0b01001010: return 0b01010010;
+      case 0b01001011: return 0b11010010;
+      case 0b01001100: return 0b00110010;
+      case 0b01001101: return 0b10110010;
+      case 0b01001110: return 0b01110010;
+      case 0b01001111: return 0b11110010;
+
+      case 0b01010000: return 0b00001010;
+      case 0b01010001: return 0b10001010;
+      case 0b01010010: return 0b01001010;
+      case 0b01010011: return 0b11001010;
+      case 0b01010100: return 0b00101010;
+      case 0b01010101: return 0b10101010;
+      case 0b01010110: return 0b01101010;
+      case 0b01010111: return 0b11101010;
+      case 0b01011000: return 0b00011010;
+      case 0b01011001: return 0b10011010;
+      case 0b01011010: return 0b01011010;
+      case 0b01011011: return 0b11011010;
+      case 0b01011100: return 0b00111010;
+      case 0b01011101: return 0b10111010;
+      case 0b01011110: return 0b01111010;
+      case 0b01011111: return 0b11111010;
+
+      case 0b01100000: return 0b00000110;
+      case 0b01100001: return 0b10000110;
+      case 0b01100010: return 0b01000110;
+      case 0b01100011: return 0b11000110;
+      case 0b01100100: return 0b00100110;
+      case 0b01100101: return 0b10100110;
+      case 0b01100110: return 0b01100110;
+      case 0b01100111: return 0b11100110;
+      case 0b01101000: return 0b00010110;
+      case 0b01101001: return 0b10010110;
+      case 0b01101010: return 0b01010110;
+      case 0b01101011: return 0b11010110;
+      case 0b01101100: return 0b00110110;
+      case 0b01101101: return 0b10110110;
+      case 0b01101110: return 0b01110110;
+      case 0b01101111: return 0b11110110;
+
+      case 0b01110000: return 0b00001110;
+      case 0b01110001: return 0b10001110;
+      case 0b01110010: return 0b01001110;
+      case 0b01110011: return 0b11001110;
+      case 0b01110100: return 0b00101110;
+      case 0b01110101: return 0b10101110;
+      case 0b01110110: return 0b01101110;
+      case 0b01110111: return 0b11101110;
+      case 0b01111000: return 0b00011110;
+      case 0b01111001: return 0b10011110;
+      case 0b01111010: return 0b01011110;
+      case 0b01111011: return 0b11011110;
+      case 0b01111100: return 0b00111110;
+      case 0b01111101: return 0b10111110;
+      case 0b01111110: return 0b01111110;
+      case 0b01111111: return 0b11111110;
+
+      case 0b10000000: return 0b00000001;
+      case 0b10000001: return 0b10000001;
+      case 0b10000010: return 0b01000001;
+      case 0b10000011: return 0b11000001;
+      case 0b10000100: return 0b00100001;
+      case 0b10000101: return 0b10100001;
+      case 0b10000110: return 0b01100001;
+      case 0b10000111: return 0b11100001;
+      case 0b10001000: return 0b00010001;
+      case 0b10001001: return 0b10010001;
+      case 0b10001010: return 0b01010001;
+      case 0b10001011: return 0b11010001;
+      case 0b10001100: return 0b00110001;
+      case 0b10001101: return 0b10110001;
+      case 0b10001110: return 0b01110001;
+      case 0b10001111: return 0b11110001;
+
+      case 0b10010000: return 0b00001001;
+      case 0b10010001: return 0b10001001;
+      case 0b10010010: return 0b01001001;
+      case 0b10010011: return 0b11001001;
+      case 0b10010100: return 0b00101001;
+      case 0b10010101: return 0b10101001;
+      case 0b10010110: return 0b01101001;
+      case 0b10010111: return 0b11101001;
+      case 0b10011000: return 0b00011001;
+      case 0b10011001: return 0b10011001;
+      case 0b10011010: return 0b01011001;
+      case 0b10011011: return 0b11011001;
+      case 0b10011100: return 0b00111001;
+      case 0b10011101: return 0b10111001;
+      case 0b10011110: return 0b01111001;
+      case 0b10011111: return 0b11111001;
+
+      case 0b10100000: return 0b00000101;
+      case 0b10100001: return 0b10000101;
+      case 0b10100010: return 0b01000101;
+      case 0b10100011: return 0b11000101;
+      case 0b10100100: return 0b00100101;
+      case 0b10100101: return 0b10100101;
+      case 0b10100110: return 0b01100101;
+      case 0b10100111: return 0b11100101;
+      case 0b10101000: return 0b00010101;
+      case 0b10101001: return 0b10010101;
+      case 0b10101010: return 0b01010101;
+      case 0b10101011: return 0b11010101;
+      case 0b10101100: return 0b00110101;
+      case 0b10101101: return 0b10110101;
+      case 0b10101110: return 0b01110101;
+      case 0b10101111: return 0b11110101;
+
+      case 0b10110000: return 0b00001101;
+      case 0b10110001: return 0b10001101;
+      case 0b10110010: return 0b01001101;
+      case 0b10110011: return 0b11001101;
+      case 0b10110100: return 0b00101101;
+      case 0b10110101: return 0b10101101;
+      case 0b10110110: return 0b01101101;
+      case 0b10110111: return 0b11101101;
+      case 0b10111000: return 0b00011101;
+      case 0b10111001: return 0b10011101;
+      case 0b10111010: return 0b01011101;
+      case 0b10111011: return 0b11011101;
+      case 0b10111100: return 0b00111101;
+      case 0b10111101: return 0b10111101;
+      case 0b10111110: return 0b01111101;
+      case 0b10111111: return 0b11111101;
+
+      case 0b11000000: return 0b00000011;
+      case 0b11000001: return 0b10000011;
+      case 0b11000010: return 0b01000011;
+      case 0b11000011: return 0b11000011;
+      case 0b11000100: return 0b00100011;
+      case 0b11000101: return 0b10100011;
+      case 0b11000110: return 0b01100011;
+      case 0b11000111: return 0b11100011;
+      case 0b11001000: return 0b00010011;
+      case 0b11001001: return 0b10010011;
+      case 0b11001010: return 0b01010011;
+      case 0b11001011: return 0b11010011;
+      case 0b11001100: return 0b00110011;
+      case 0b11001101: return 0b10110011;
+      case 0b11001110: return 0b01110011;
+      case 0b11001111: return 0b11110011;
+
+      case 0b11010000: return 0b00001011;
+      case 0b11010001: return 0b10001011;
+      case 0b11010010: return 0b01001011;
+      case 0b11010011: return 0b11001011;
+      case 0b11010100: return 0b00101011;
+      case 0b11010101: return 0b10101011;
+      case 0b11010110: return 0b01101011;
+      case 0b11010111: return 0b11101011;
+      case 0b11011000: return 0b00011011;
+      case 0b11011001: return 0b10011011;
+      case 0b11011010: return 0b01011011;
+      case 0b11011011: return 0b11011011;
+      case 0b11011100: return 0b00111011;
+      case 0b11011101: return 0b10111011;
+      case 0b11011110: return 0b01111011;
+      case 0b11011111: return 0b11111011;
+
+      case 0b11100000: return 0b00000111;
+      case 0b11100001: return 0b10000111;
+      case 0b11100010: return 0b01000111;
+      case 0b11100011: return 0b11000111;
+      case 0b11100100: return 0b00100111;
+      case 0b11100101: return 0b10100111;
+      case 0b11100110: return 0b01100111;
+      case 0b11100111: return 0b11100111;
+      case 0b11101000: return 0b00010111;
+      case 0b11101001: return 0b10010111;
+      case 0b11101010: return 0b01010111;
+      case 0b11101011: return 0b11010111;
+      case 0b11101100: return 0b00110111;
+      case 0b11101101: return 0b10110111;
+      case 0b11101110: return 0b01110111;
+      case 0b11101111: return 0b11110111;
+
+      case 0b11110000: return 0b00001111;
+      case 0b11110001: return 0b10001111;
+      case 0b11110010: return 0b01001111;
+      case 0b11110011: return 0b11001111;
+      case 0b11110100: return 0b00101111;
+      case 0b11110101: return 0b10101111;
+      case 0b11110110: return 0b01101111;
+      case 0b11110111: return 0b11101111;
+      case 0b11111000: return 0b00011111;
+      case 0b11111001: return 0b10011111;
+      case 0b11111010: return 0b01011111;
+      case 0b11111011: return 0b11011111;
+      case 0b11111100: return 0b00111111;
+      case 0b11111101: return 0b10111111;
+      case 0b11111110: return 0b01111111;
+      case 0b11111111: return 0b11111111;
+      
+      default: return 0;
+    }
   }
 
   template <typename T>
@@ -327,18 +678,10 @@ namespace wmath{
     return __builtin_clzl(x);
   }
   
-  uint32_t constexpr ctz(const uint32_t x){
-    return __builtin_clzl(reverse(x));
-  }
-  
   uint64_t constexpr clz(const uint64_t x){
     return __builtin_clzl(x);
   }
   
-  uint64_t constexpr ctz(const uint64_t x){
-    return __builtin_clzl(reverse(x));
-  }
-
   uint32_t constexpr log2(const uint32_t x){
     return x==0?0:31-__builtin_clzl(x);
   }
@@ -367,7 +710,7 @@ namespace wmath{
   
   size_t constexpr hash(const size_t& v0,const size_t& v1) {
     const size_t n = 1+(numeric_limits<size_t>::digits*144+116)/233;
-    return rol(circadd(v0,v1),n)^circdff(v0,v1);
+    return rol(v0+v1,n)^(v0-v1);
   }
  
   template <typename T,typename... Rest>
@@ -463,7 +806,7 @@ namespace wmath{
           if constexpr (smartskip){
             const size_t p = ((~(mask[k]&m))>>(digits<size_t>()-l-1));
             const size_t n = l+1;
-            const size_t s = clz(reverse(p))>n?n:clz(reverse(p));
+            const size_t s = clz(reflect(p))>n?n:clz(reflect(p));
             i-=s;
           } else {
             if ((mask[k]&m)==m)
