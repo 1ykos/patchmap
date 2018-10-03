@@ -13,8 +13,9 @@ The overhead when inserting is proportional to 1+1/(1-α) with α being the load
 
 This is very similar to linear probing with robin hood hashing but with the possibility
 of interpolation search leading to an improved upper bound when retrieving keys of
-O(log(n)) compared to O(n) in case of the usual hashmap implementation.
+O(log(n)) compared to O(n) in case of usual hashmap implementations.
 
-If you are interested using this container contact me.
+If you are interested using this container contact me and I will make it work for you,
+right now I just want to see if it's worth it to put in the effort.
 
 Compile with -mpclmul -std=c++17
