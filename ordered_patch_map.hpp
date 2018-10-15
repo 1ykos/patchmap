@@ -2,6 +2,7 @@
 #define ORDERED_PATCH_MAP_H
 
 #include <algorithm>
+#include <bitset>
 #include <cassert>
 #include <cstdint>
 #include <cstring>
@@ -9,781 +10,120 @@
 #include <iomanip>
 #include <iostream>
 #include <iterator>
-#include <limits>
-#include <numeric>
-#if defined (__has_include) && (__has_include(<x86intrin.h>))
-#include <x86intrin.h>
-#endif
-#include <bitset>
-
-constexpr bool VERBOSE_WMATH = false;
+#include <stdexcept>
+#include <typeinfo>
+#include <exception>
+#include <memory>
+#include "wmath_forward.hpp"
+#include "wmath_bits.hpp"
+#include "wmath_hash.hpp"
 
 namespace wmath{
-  using std::cerr;
-  using std::cout;
-  using std::enable_if;
-  using std::endl;
-  using std::get;
-  using std::index_sequence;
-  using std::index_sequence_for;
-  using std::is_trivially_copyable;
-  using std::is_unsigned;
-  using std::iterator;
-  using std::iterator_traits;
-  using std::make_unsigned;
-  using std::numeric_limits;
-  using std::pair;
-  using std::random_access_iterator_tag;
-  using std::result_of;
-  using std::swap;
-  using std::tuple;
-
+  using std::allocator_traits;
   template <typename T>
-  constexpr size_t digits(const T& n=0){
-    return std::numeric_limits<T>::digits;
+  typename std::enable_if<std::is_unsigned<T>::value,T>::type
+  constexpr distribute(const T& a); // mix the hash value good, clmul_circ
+                                    // with odious integer is suitable
+
+  uint8_t  const inline distribute(const uint8_t& a){
+    return clmul_circ(uint8_t(0b11010010u+a),
+                      uint8_t(0b01000101u));
+  }
+  
+  uint16_t const inline distribute(const uint16_t& a){
+    return clmul_circ(uint16_t(0b11010010'11100101u+a),
+                      uint16_t(0b01000101'10100101u));
+  }
+  uint32_t const inline distribute(const uint32_t& a){
+    return clmul_circ(uint32_t(0b11010010'11010010'11010010'11010010ul+a),
+                      uint32_t(0b01010101'10010011'11010010'01110011ul));
+  }
+  uint64_t const inline distribute(const uint64_t& a){
+    constexpr uint64_t c0 = 
+    0b11010010'11010010'11010010'11010010'11010010'11010010'11010010'11010010ull;
+    constexpr uint64_t c1 =
+    0b10011001'10011010'00111010'01000101'01111000'01010101'10010110'10101001ull;
+    return clmul_circ(c0+a,c1);
   }
 
   template<typename T>
-  typename std::enable_if<std::is_unsigned<T>::value,tuple<T,T>>::type
-  constexpr long_mul(const T& a, const T& b);
-
-  // calculate a * b = r0r1
-  template<typename T>
-  typename std::enable_if<std::is_unsigned<T>::value,tuple<T,T>>::type
-  constexpr long_mul(const T& a, const T& b){
-    const T N  = digits<T>()/2;
-    const T t0 = (a>>N)*(b>>N);
-    const T t1 = ((a<<N)>>N)*(b>>N);
-    const T t2 = (a>>N)*((b<<N)>>N);
-    const T t3 = ((a<<N)>>N)*((b<<N)>>N);
-    const T t4 = t3+(t1<<N);
-    const T r1 = t4+(t2<<N);
-    const T r0 = (r1<t4)+(t4<t3)+(t1>>N)+(t2>>N)+t0;
-    return {r0,r1};
-  }
-  
-  template <typename T,typename S>
-  typename std::enable_if<std::is_unsigned<T>::value,T>::type
-  constexpr ror(const T n, const S i){
-    const T m = (std::numeric_limits<T>::digits-1);
-    const T c = i&m;
-    return (n>>c)|(n<<((-c)&m));
-  }
-
-  template <typename T,typename S>
-  typename std::enable_if<std::is_unsigned<T>::value,T>::type
-  constexpr rol(const T n, const S i){
-    const T m = (std::numeric_limits<T>::digits-1);
-    const T c = i&m;
-    return (n<<c)|(n>>((-c)&m));
-  }
-
-#ifdef __SIZEOF_INT128__
-  template<>
-  tuple<uint64_t,uint64_t>
-  constexpr long_mul(const uint64_t& a, const uint64_t& b){
-    unsigned __int128 r = ((unsigned __int128)(a))*((unsigned __int128)(b));
-    return {uint64_t(r>>64),uint64_t(r)};
-  }
-#endif
-
-  template<>
-  tuple<uint8_t,uint8_t> constexpr long_mul(const uint8_t& a,const uint8_t& b){
-    const int_fast16_t r = int_fast16_t(a)*int_fast16_t(b);
-    return {uint8_t(r>>8),uint8_t(r)};
-  }
-  
-  template<>
-  tuple<uint16_t,uint16_t> constexpr long_mul(
-      const uint16_t& a,
-      const uint16_t& b){
-    const int_fast32_t r = int_fast32_t(a)*int_fast32_t(b);
-    return {uint16_t(r>>16),uint16_t(r)};
-  }
-  
-  template<>
-  tuple<uint32_t,uint32_t> constexpr long_mul(
-      const uint32_t& a,
-      const uint32_t& b){
-    const int_fast64_t r = int_fast64_t(a)*int_fast64_t(b);
-    return {uint32_t(r>>32),uint32_t(r)};
-  }
-
-  template <typename T>
-  constexpr size_t popcount(const T n){
-    size_t c=0;
-    while(n) (n&=(n-1),++c);
-    return c;
-  }
-
-#if __GNUC__ > 3 || __clang__
-  constexpr size_t popcount(const uint32_t n){
-    return __builtin_popcountl(n);
-  }
-
-  constexpr size_t popcount(const uint64_t n){
-    return __builtin_popcountll(n);
-  }
-#endif
-
-  template <typename T>
-  typename std::enable_if<std::is_unsigned<T>::value,T>::type
-  constexpr bitmask(const T& lower, const T& upper){ // exclusive upper limit
-    return T(1)<<upper-T(1)<<lower;
-  }
-
-  template <typename T>
-  typename std::enable_if<std::is_unsigned<T>::value,T>::type
-  constexpr bitmask_upper(const T& upper){
-    return (upper<std::numeric_limits<T>::digits)?
-      T(1)<<upper-T(1):std::numeric_limits<T>::max();
-  }
-
-  template <typename T>
-  typename std::enable_if<std::is_unsigned<T>::value,T>::type
-  constexpr bitmask_lower(const T& lower){
-    return T(0)-T(1)<<lower;
-  }
-  
-  template <typename T>
-  typename std::enable_if<std::is_unsigned<T>::value,T>::type
-  constexpr alternating_bitmask(const size_t step){
-    T mask(0);
-    for (size_t i=0;i<digits<T>();i+=2*step){
-      mask|=(~T(0)>>(digits<T>()-step))<<i;
-    }
-    return mask;
-  }
-
-  template<class T, class U = typename std::make_unsigned<T>::type>
-  constexpr T bswap(T n){
-    for (size_t i=digits<unsigned char>();i<digits<T>();i*=2){
-      n = ((n&(~(alternating_bitmask<T>(i))))>>i)|
-          ((n&( (alternating_bitmask<T>(i))))<<i);
-    }
-    return n;
-  }
-
-#if __GNUC__ > 3 || __clang__
-  constexpr uint16_t bswap(uint16_t n){
-    return __builtin_bswap16(n);
-  }
-
-  constexpr uint32_t bswap(uint32_t n){
-    return __builtin_bswap32(n);
-  }
-
-  constexpr uint64_t bswap(uint64_t n){
-    return __builtin_bswap64(n);
-  }
-  
-  constexpr int16_t bswap(int16_t n){
-    return __builtin_bswap16(n);
-  }
-
-  constexpr int32_t bswap(int32_t n){
-    return __builtin_bswap32(n);
-  }
-
-  constexpr int64_t bswap(int64_t n){
-    return __builtin_bswap64(n);
-  }
-#endif
-
-  template<class T,size_t step=1,class U = typename std::make_unsigned<T>::type>
-  constexpr U reflect(T n) {
-    for (size_t i=step;i<digits<unsigned char>();i*=2){ 
-      n = ((n&(~(alternating_bitmask<T>(i))))>>i)|
-        ((n&( (alternating_bitmask<T>(i))))<<i);
-    }
-    return bswap(n);
-  }
-
-  uint8_t inline reflect(const uint8_t n){
-    switch (n){
-      case 0b00000000: return 0b00000000;
-      case 0b00000001: return 0b10000000;
-      case 0b00000010: return 0b01000000;
-      case 0b00000011: return 0b11000000;
-      case 0b00000100: return 0b00100000;
-      case 0b00000101: return 0b10100000;
-      case 0b00000110: return 0b01100000;
-      case 0b00000111: return 0b11100000;
-      case 0b00001000: return 0b00010000;
-      case 0b00001001: return 0b10010000;
-      case 0b00001010: return 0b01010000;
-      case 0b00001011: return 0b11010000;
-      case 0b00001100: return 0b00110000;
-      case 0b00001101: return 0b10110000;
-      case 0b00001110: return 0b01110000;
-      case 0b00001111: return 0b11110000;
-
-      case 0b00010000: return 0b00001000;
-      case 0b00010001: return 0b10001000;
-      case 0b00010010: return 0b01001000;
-      case 0b00010011: return 0b11001000;
-      case 0b00010100: return 0b00101000;
-      case 0b00010101: return 0b10101000;
-      case 0b00010110: return 0b01101000;
-      case 0b00010111: return 0b11101000;
-      case 0b00011000: return 0b00011000;
-      case 0b00011001: return 0b10011000;
-      case 0b00011010: return 0b01011000;
-      case 0b00011011: return 0b11011000;
-      case 0b00011100: return 0b00111000;
-      case 0b00011101: return 0b10111000;
-      case 0b00011110: return 0b01111000;
-      case 0b00011111: return 0b11111000;
-
-      case 0b00100000: return 0b00000100;
-      case 0b00100001: return 0b10000100;
-      case 0b00100010: return 0b01000100;
-      case 0b00100011: return 0b11000100;
-      case 0b00100100: return 0b00100100;
-      case 0b00100101: return 0b10100100;
-      case 0b00100110: return 0b01100100;
-      case 0b00100111: return 0b11100100;
-      case 0b00101000: return 0b00010100;
-      case 0b00101001: return 0b10010100;
-      case 0b00101010: return 0b01010100;
-      case 0b00101011: return 0b11010100;
-      case 0b00101100: return 0b00110100;
-      case 0b00101101: return 0b10110100;
-      case 0b00101110: return 0b01110100;
-      case 0b00101111: return 0b11110100;
-
-      case 0b00110000: return 0b00001100;
-      case 0b00110001: return 0b10001100;
-      case 0b00110010: return 0b01001100;
-      case 0b00110011: return 0b11001100;
-      case 0b00110100: return 0b00101100;
-      case 0b00110101: return 0b10101100;
-      case 0b00110110: return 0b01101100;
-      case 0b00110111: return 0b11101100;
-      case 0b00111000: return 0b00011100;
-      case 0b00111001: return 0b10011100;
-      case 0b00111010: return 0b01011100;
-      case 0b00111011: return 0b11011100;
-      case 0b00111100: return 0b00111100;
-      case 0b00111101: return 0b10111100;
-      case 0b00111110: return 0b01111100;
-      case 0b00111111: return 0b11111100;
-
-      case 0b01000000: return 0b00000010;
-      case 0b01000001: return 0b10000010;
-      case 0b01000010: return 0b01000010;
-      case 0b01000011: return 0b11000010;
-      case 0b01000100: return 0b00100010;
-      case 0b01000101: return 0b10100010;
-      case 0b01000110: return 0b01100010;
-      case 0b01000111: return 0b11100010;
-      case 0b01001000: return 0b00010010;
-      case 0b01001001: return 0b10010010;
-      case 0b01001010: return 0b01010010;
-      case 0b01001011: return 0b11010010;
-      case 0b01001100: return 0b00110010;
-      case 0b01001101: return 0b10110010;
-      case 0b01001110: return 0b01110010;
-      case 0b01001111: return 0b11110010;
-
-      case 0b01010000: return 0b00001010;
-      case 0b01010001: return 0b10001010;
-      case 0b01010010: return 0b01001010;
-      case 0b01010011: return 0b11001010;
-      case 0b01010100: return 0b00101010;
-      case 0b01010101: return 0b10101010;
-      case 0b01010110: return 0b01101010;
-      case 0b01010111: return 0b11101010;
-      case 0b01011000: return 0b00011010;
-      case 0b01011001: return 0b10011010;
-      case 0b01011010: return 0b01011010;
-      case 0b01011011: return 0b11011010;
-      case 0b01011100: return 0b00111010;
-      case 0b01011101: return 0b10111010;
-      case 0b01011110: return 0b01111010;
-      case 0b01011111: return 0b11111010;
-
-      case 0b01100000: return 0b00000110;
-      case 0b01100001: return 0b10000110;
-      case 0b01100010: return 0b01000110;
-      case 0b01100011: return 0b11000110;
-      case 0b01100100: return 0b00100110;
-      case 0b01100101: return 0b10100110;
-      case 0b01100110: return 0b01100110;
-      case 0b01100111: return 0b11100110;
-      case 0b01101000: return 0b00010110;
-      case 0b01101001: return 0b10010110;
-      case 0b01101010: return 0b01010110;
-      case 0b01101011: return 0b11010110;
-      case 0b01101100: return 0b00110110;
-      case 0b01101101: return 0b10110110;
-      case 0b01101110: return 0b01110110;
-      case 0b01101111: return 0b11110110;
-
-      case 0b01110000: return 0b00001110;
-      case 0b01110001: return 0b10001110;
-      case 0b01110010: return 0b01001110;
-      case 0b01110011: return 0b11001110;
-      case 0b01110100: return 0b00101110;
-      case 0b01110101: return 0b10101110;
-      case 0b01110110: return 0b01101110;
-      case 0b01110111: return 0b11101110;
-      case 0b01111000: return 0b00011110;
-      case 0b01111001: return 0b10011110;
-      case 0b01111010: return 0b01011110;
-      case 0b01111011: return 0b11011110;
-      case 0b01111100: return 0b00111110;
-      case 0b01111101: return 0b10111110;
-      case 0b01111110: return 0b01111110;
-      case 0b01111111: return 0b11111110;
-
-      case 0b10000000: return 0b00000001;
-      case 0b10000001: return 0b10000001;
-      case 0b10000010: return 0b01000001;
-      case 0b10000011: return 0b11000001;
-      case 0b10000100: return 0b00100001;
-      case 0b10000101: return 0b10100001;
-      case 0b10000110: return 0b01100001;
-      case 0b10000111: return 0b11100001;
-      case 0b10001000: return 0b00010001;
-      case 0b10001001: return 0b10010001;
-      case 0b10001010: return 0b01010001;
-      case 0b10001011: return 0b11010001;
-      case 0b10001100: return 0b00110001;
-      case 0b10001101: return 0b10110001;
-      case 0b10001110: return 0b01110001;
-      case 0b10001111: return 0b11110001;
-
-      case 0b10010000: return 0b00001001;
-      case 0b10010001: return 0b10001001;
-      case 0b10010010: return 0b01001001;
-      case 0b10010011: return 0b11001001;
-      case 0b10010100: return 0b00101001;
-      case 0b10010101: return 0b10101001;
-      case 0b10010110: return 0b01101001;
-      case 0b10010111: return 0b11101001;
-      case 0b10011000: return 0b00011001;
-      case 0b10011001: return 0b10011001;
-      case 0b10011010: return 0b01011001;
-      case 0b10011011: return 0b11011001;
-      case 0b10011100: return 0b00111001;
-      case 0b10011101: return 0b10111001;
-      case 0b10011110: return 0b01111001;
-      case 0b10011111: return 0b11111001;
-
-      case 0b10100000: return 0b00000101;
-      case 0b10100001: return 0b10000101;
-      case 0b10100010: return 0b01000101;
-      case 0b10100011: return 0b11000101;
-      case 0b10100100: return 0b00100101;
-      case 0b10100101: return 0b10100101;
-      case 0b10100110: return 0b01100101;
-      case 0b10100111: return 0b11100101;
-      case 0b10101000: return 0b00010101;
-      case 0b10101001: return 0b10010101;
-      case 0b10101010: return 0b01010101;
-      case 0b10101011: return 0b11010101;
-      case 0b10101100: return 0b00110101;
-      case 0b10101101: return 0b10110101;
-      case 0b10101110: return 0b01110101;
-      case 0b10101111: return 0b11110101;
-
-      case 0b10110000: return 0b00001101;
-      case 0b10110001: return 0b10001101;
-      case 0b10110010: return 0b01001101;
-      case 0b10110011: return 0b11001101;
-      case 0b10110100: return 0b00101101;
-      case 0b10110101: return 0b10101101;
-      case 0b10110110: return 0b01101101;
-      case 0b10110111: return 0b11101101;
-      case 0b10111000: return 0b00011101;
-      case 0b10111001: return 0b10011101;
-      case 0b10111010: return 0b01011101;
-      case 0b10111011: return 0b11011101;
-      case 0b10111100: return 0b00111101;
-      case 0b10111101: return 0b10111101;
-      case 0b10111110: return 0b01111101;
-      case 0b10111111: return 0b11111101;
-
-      case 0b11000000: return 0b00000011;
-      case 0b11000001: return 0b10000011;
-      case 0b11000010: return 0b01000011;
-      case 0b11000011: return 0b11000011;
-      case 0b11000100: return 0b00100011;
-      case 0b11000101: return 0b10100011;
-      case 0b11000110: return 0b01100011;
-      case 0b11000111: return 0b11100011;
-      case 0b11001000: return 0b00010011;
-      case 0b11001001: return 0b10010011;
-      case 0b11001010: return 0b01010011;
-      case 0b11001011: return 0b11010011;
-      case 0b11001100: return 0b00110011;
-      case 0b11001101: return 0b10110011;
-      case 0b11001110: return 0b01110011;
-      case 0b11001111: return 0b11110011;
-
-      case 0b11010000: return 0b00001011;
-      case 0b11010001: return 0b10001011;
-      case 0b11010010: return 0b01001011;
-      case 0b11010011: return 0b11001011;
-      case 0b11010100: return 0b00101011;
-      case 0b11010101: return 0b10101011;
-      case 0b11010110: return 0b01101011;
-      case 0b11010111: return 0b11101011;
-      case 0b11011000: return 0b00011011;
-      case 0b11011001: return 0b10011011;
-      case 0b11011010: return 0b01011011;
-      case 0b11011011: return 0b11011011;
-      case 0b11011100: return 0b00111011;
-      case 0b11011101: return 0b10111011;
-      case 0b11011110: return 0b01111011;
-      case 0b11011111: return 0b11111011;
-
-      case 0b11100000: return 0b00000111;
-      case 0b11100001: return 0b10000111;
-      case 0b11100010: return 0b01000111;
-      case 0b11100011: return 0b11000111;
-      case 0b11100100: return 0b00100111;
-      case 0b11100101: return 0b10100111;
-      case 0b11100110: return 0b01100111;
-      case 0b11100111: return 0b11100111;
-      case 0b11101000: return 0b00010111;
-      case 0b11101001: return 0b10010111;
-      case 0b11101010: return 0b01010111;
-      case 0b11101011: return 0b11010111;
-      case 0b11101100: return 0b00110111;
-      case 0b11101101: return 0b10110111;
-      case 0b11101110: return 0b01110111;
-      case 0b11101111: return 0b11110111;
-
-      case 0b11110000: return 0b00001111;
-      case 0b11110001: return 0b10001111;
-      case 0b11110010: return 0b01001111;
-      case 0b11110011: return 0b11001111;
-      case 0b11110100: return 0b00101111;
-      case 0b11110101: return 0b10101111;
-      case 0b11110110: return 0b01101111;
-      case 0b11110111: return 0b11101111;
-      case 0b11111000: return 0b00011111;
-      case 0b11111001: return 0b10011111;
-      case 0b11111010: return 0b01011111;
-      case 0b11111011: return 0b11011111;
-      case 0b11111100: return 0b00111111;
-      case 0b11111101: return 0b10111111;
-      case 0b11111110: return 0b01111111;
-      case 0b11111111: return 0b11111111;
-      
-      default: return 0;
-    }
-  }
-
-  template <typename T>
-  typename std::enable_if<std::is_unsigned<T>::value,T>::type
-  constexpr inverse(const T& n){
-    if (n==0) return n;
-    return (~T(0))/n+(popcount(n)==1);
-  }
-  
-  template <typename T>
-  typename std::enable_if<std::is_unsigned<T>::value,T>::type
-  constexpr largest_prime(const T& i=0);
-
-  template <>
-  uint8_t constexpr largest_prime(const uint8_t& i){
-    switch (i){
-      case 0:
-        return 251;
-      case 1:
-        return 241;
-      case 2:
-        return 239;
-      case 3:
-        return 233;
-      default:
-        return 1;
-    }
-  }
-
-  template <>
-  uint16_t constexpr largest_prime(const uint16_t& i){
-    switch (i){
-      case 0:
-        return uint16_t(0)-uint16_t(15);
-      case 1:
-        return uint16_t(0)-uint16_t(17);
-      case 2:
-        return uint16_t(0)-uint16_t(39);
-      case 3:
-        return uint16_t(0)-uint16_t(57);
-      default:
-        return 1;
-    }
-  }
-
-  template <>
-  uint32_t constexpr largest_prime(const uint32_t& i){
-    switch (i){
-      case 0:
-        return uint32_t(0)-uint32_t(5);
-      case 1:
-        return uint32_t(0)-uint32_t(17);
-      case 2:
-        return uint32_t(0)-uint32_t(65);
-      case 3:
-        return uint32_t(0)-uint32_t(99);
-      default:
-        return 1;
-    }
-  }
-
-  template <>
-  uint64_t constexpr largest_prime(const uint64_t& i){
-    switch (i){
-      case 0:
-        return uint64_t(0)-uint64_t(59);
-      case 1:
-        return uint64_t(0)-uint64_t(83);
-      case 2:
-        return uint64_t(0)-uint64_t(95);
-      case 3:
-        return uint64_t(0)-uint64_t(179);
-      default:
-        return 1;
-    }
-  }
-
-  template <typename T>
-  typename std::enable_if<std::is_unsigned<T>::value,T>::type
-  constexpr random_prime(const T& i=0);
-
-  template <>
-  uint8_t constexpr random_prime(const uint8_t& i){
-    uint8_t primes[] = {127u,
-                        131u,
-                        251u,
-                        223u,
-                        191u,
-                        193u,
-                        47u,
-                        97u};
-    return primes[i];
-  }
-  
-  template <>
-  uint16_t constexpr random_prime(const uint16_t& i){
-    uint16_t primes[] = {42307u,
-                         52313u,
-                         51307u,
-                         11317u,
-                         60317u,
-                         60337u,
-                         60037u,
-                         30137u};
-    return primes[i];
-  }
-
-  template <>
-  uint32_t constexpr random_prime(const uint32_t& i){
-    uint32_t primes[] = {4184867191u,
-                         4184864197u,
-                         4184411197u,
-                         3184410197u,
-                         2184200197u,
-                          728033399u,
-                         1061068399u,
-                         3183208117u};
-    return primes[i];
-  }
-  
-  template <>
-  uint64_t constexpr random_prime(const uint64_t& i){
-    uint64_t primes[] = {15112557877901478707ul,
-                         18446744073709503907ul,
-                          5819238023569667969ul,
-                         17457704070697003907ul,
-                         14023704271282629773ul,
-                         15457704070697023907ul,
-                         12023704271182029287ul,
-                         10023704271182029357ul,
-                          8023704271998834967ul};
-    return primes[i];
-  }
-  
-  template <typename T>
-  typename std::enable_if<std::is_unsigned<T>::value,T>::type
-  constexpr clmul_circ(const T& i,const T& j){
-    T r=0;
-    for (size_t n=0;n!=digits<T>();++n) if(j&(T(1)<<n)) r^=wmath::rol(i,n);
-    return r;
-  }
-
-#if defined (__has_include) && (__has_include(<x86intrin.h>))
-  uint8_t const clmul_circ(const uint8_t& a,const uint8_t& b){
-    int64_t _a = a;
-    int64_t _b = b;
-    __m128i ma{_a,0ull};
-    __m128i mb{_b,0ull};
-    auto t = _mm_clmulepi64_si128(ma,mb,0);
-    return t[0]^(t[0]>>8);
-  }
-  
-  uint16_t const clmul_circ(const uint16_t& a,const uint16_t& b){
-    int64_t _a(0);
-    int64_t _b(0);
-    _a^=a;
-    _b^=b;
-    __m128i ma{_a,0ull};
-    __m128i mb{_b,0ull};
-    auto t = _mm_clmulepi64_si128(ma,mb,0);
-    return t[0]^(t[0]>>16);
-  }
-  
-  uint32_t const clmul_circ(const uint32_t& a,const uint32_t& b){
-    int64_t _a(0);
-    int64_t _b(0);
-    _a^=a;
-    _b^=b;
-    __m128i ma{_a,0ull};
-    __m128i mb{_b,0ull};
-    auto t = _mm_clmulepi64_si128(ma,mb,0);
-    return t[0]^(t[0]>>32);
-  }
-  
-  uint64_t const clmul_circ(const uint64_t& a,const uint64_t& b){
-    __m128i ma{(const int64_t)(a),0ull};
-    __m128i mb{(const int64_t)(b),0ull};
-    auto t = _mm_clmulepi64_si128(ma,mb,0);
-    return t[0]^t[1];
-  }
-#endif
-
-  template <typename T>
-  typename std::enable_if<std::is_unsigned<T>::value,T>::type
-  constexpr clz(const T x,const T lower=0,const T upper=digits<T>()){
-    return (upper-lower==T(1))?digits<T>()-upper:(x&(T(0)-T(1)<<((upper+lower)/2))?
-           clz(x,(upper+lower)/2,upper):
-           clz(x,lower,(upper+lower)/2));
-  }
- 
-  template <typename T>
-  typename std::enable_if<std::is_unsigned<T>::value,T>::type
-  constexpr log2(const T x,const T lower=0,const T upper=digits<T>()){
-    return (upper-lower==T(1))?lower:(x&(T(0)-T(1)<<((upper+lower)/2))?
-           log2(x,(upper+lower)/2,upper):
-           log2(x,lower,(upper+lower)/2));
-  }
-
-#if __GNUC__ > 3 || __clang__
-  uint32_t constexpr clz(const uint32_t x){
-    return __builtin_clzl(x);
-  }
-  
-  uint64_t constexpr clz(const uint64_t x){
-    return __builtin_clzl(x);
-  }
-  
-  uint32_t constexpr log2(const uint32_t x){
-    return x==0?0:31-__builtin_clzl(x);
-  }
-  
-  uint64_t constexpr log2(const uint64_t x){
-    return x==0?0:63-__builtin_clzll(x);
-  }
-#endif
-
-  template< typename, typename = void >
-  struct has_hash : std::false_type {};
-
-  template<typename T>
-  struct has_hash<T,decltype( std::hash< T >()( std::declval< T >() ), void() ) >
-  : std::true_type {};
-
-  template<typename T>
-  typename enable_if<has_hash<T>::value,size_t>::type
-  constexpr hash(const T& v){
-    return std::hash<T>()(v);
-  }
-
-  size_t constexpr hash(const size_t& v){
-    return v;
-  }
-  
-  size_t constexpr hash(const size_t& v0,const size_t& v1) {
-    const size_t n = 1+(numeric_limits<size_t>::digits*144+116)/233;
-    return rol(v0+v1,n)^(v0-v1);
-  }
- 
-  template <typename T,typename... Rest>
-  size_t constexpr hash(const T& v,Rest... rest);
-  
-  template<typename T,size_t... I>
-  size_t constexpr hash_tuple_impl(const T& t, index_sequence<I...>){
-    return hash(std::get<I>(t)...);
-  }
-
-  template<typename... Ts>
-  size_t constexpr hash(const tuple<Ts...>& t){
-    return hash_tuple_impl(t,index_sequence_for<Ts...>{});
-  }
-  
-  template <typename T, typename... Rest>
-  size_t constexpr hash(const T& v, Rest... rest) {
-    return hash(hash(v),hash(rest...));
-  }
-
-  template <typename T>
-  struct hash_functor{
-    size_t constexpr operator()(const T& v) const {
-      return wmath::hash(v);
-    }
+  struct dummy_comp{ // dummy comparator for when we don't need a comparator
+    constexpr bool operator()(const T&,const T&) const {return false;}
   };
 
-  template <typename T>
-  typename std::enable_if<std::is_unsigned<T>::value,T>::type
-  constexpr distribute(const T& a){
-    return clmul_circ(a+random_prime<T>(2),random_prime<T>(0));
-  }
-
-  template<class K,class T,class hash=hash_functor<K>>
+  template<class key_type    = int,  // int is the default, why not
+           class mapped_type = int,  // int is the default, why not
+           class hash        = hash_functor<key_type>,
+           class equal       = std::equal_to<key_type>,
+           class comp        = typename conditional<is_injective<hash>::value,
+                                                    dummy_comp<key_type>,
+                                                    std::less<key_type>>::type,
+           class alloc       = std::allocator<std::pair<key_type,mapped_type>>
+          >
   class ordered_patch_map{
     public:
-      hash hasher;
+      typedef alloc allocator_type;
+      typedef typename alloc::value_type value_type;
+      typedef typename alloc::reference reference;
+      typedef typename alloc::const_reference const_reference;
+      typedef typename alloc::difference_type difference_type;
+      typedef typename alloc::size_type size_type;
+      typedef typename std::result_of<hash(key_type)>::type hash_type;
     private:
-      size_t num_data;
-      size_t datasize;
-      size_t inversed;
-      size_t nextsize;
-      size_t masksize;
-      pair<K,T> * data;
-      size_t * mask;
-      constexpr static bool smartskip = true;
-      typedef typename std::result_of<hash(K)>::type H;
-      size_t const inline map(const H& h) const {
-        constexpr size_t s =
-          (digits<H>()>digits<size_t>())?(h>>(digits<H>()-digits<size_t>())):0;
-        //cout << "(h>>s) = " << (h>>s) << endl;
+      size_type num_data;
+      size_type datasize;
+      size_type inversed;
+      size_type nextsize;
+      size_type masksize;
+      pair<key_type,mapped_type> * data;
+      size_type * mask;
+      allocator_type allocator;
+      comp comparator;
+      equal equator;
+      using uphold_iterator_validity = true_type;
+      size_type inline map(const hash_type& h) const {
+        constexpr size_type s =
+          (digits<hash_type>()>digits<size_type>())?
+          (h>>(digits<hash_type>()-digits<size_type>())):0;
         return get<0>(long_mul(h>>s,datasize));
       }
-      H const inline order(const K& k) const {
-        return distribute(hasher(k));
+      hash_type inline order(const key_type& k) const {
+        return distribute(hash()(k));
       }
-      bool const inline is_set(const size_t& n) const {
-        const size_t i = n/digits<size_t>();
-        const size_t j = n%digits<size_t>();
-        if (mask[i]&(size_t(1)<<(digits<size_t>()-j-1))) return true;
+      bool inline is_less(const key_type& a,const key_type& b) const {
+        if constexpr (is_injective<hash>::value)
+          assert(equator(a,b)==(order(a)==order(b)));
+        if (order(a)<order(b)) return true;
+        if (order(a)>order(b)) return false;
+        if constexpr (is_injective<hash>::value) return false;
+        return comparator(a,b);
+      }
+      bool inline is_more(const key_type& a,const key_type& b) const {
+        if constexpr (is_injective<hash>::value)
+          assert(equator(a,b)==(order(a)==order(b)));
+        if (order(a)>order(b)) return true;
+        if (order(a)<order(b)) return false;
+        if constexpr (is_injective<hash>::value) return false;
+        return !((comparator(a,b))||(equator(a,b)));
+      }
+      bool inline is_set(const size_type& n) const {
+        const size_type i = n/digits<size_type>();
+        const size_type j = n%digits<size_type>();
+        assert(i<masksize);
+        if (mask[i]&(size_type(1)<<(digits<size_type>()-j-1))) return true;
         return false;
       }
-      void const inline set(const size_t& n) {
-        const size_t i = n/digits<size_t>();
-        const size_t j = n%digits<size_t>();
-        mask[i]|=size_t(1)<<(digits<size_t>()-j-1);
+      void inline set(const size_type& n) {
+        const size_type i = n/digits<size_type>();
+        const size_type j = n%digits<size_type>();
+        mask[i]|=size_type(1)<<(digits<size_type>()-j-1);
       }
-      void const inline unset(const size_t& n) {
-        const size_t i = n/digits<size_t>();
-        const size_t j = n%digits<size_t>();
-        mask[i]&=((~size_t(0))^(size_t(1)<<(digits<size_t>()-j-1)));
+      void inline unset(const size_type& n) {
+        const size_type i = n/digits<size_type>();
+        const size_type j = n%digits<size_type>();
+        mask[i]&=((~size_type(0))^(size_type(1)<<(digits<size_type>()-j-1)));
       }
-      const inline void swap_set(const size_t& i,const size_t& j){
+      void inline swap_set(const size_type& i,const size_type& j){
         if (is_set(i)==is_set(j)) return;
         if (is_set(i)){
           set(j);
@@ -793,177 +133,210 @@ namespace wmath{
           unset(j);
         }
       }
-      H const inline index(const size_t& i) const {
+      hash_type inline index(const size_type& i) const {
+        assert(i<datasize);
         if (is_set(i)) return order(data[i].first);
         return i*inversed;
       }
-      size_t const inline search_backward(size_t i){ // search for free bucket
+      bool inline index_index_is_less(const size_type& i,const size_type& j)
+        const {
+        assert(i<datasize);
+        assert(j<datasize);
+        if (is_set(i)&&is_set(j)) return is_less(data[i].first,data[j].first);
+        if (is_set(i)) return order(data[i].first)<hash_type(j*inversed);
+        if (is_set(j)) return hash_type(i*inversed)<order(data[j].first);
+        return i<j;
+      }
+      bool inline index_key_is_less(const size_type& i,const key_type& k) const{
+        if (is_set(i)) return is_less(data[i].first,k);
+        return hash_type(i*inversed)<order(k);
+      }
+      bool inline index_key_is_more(const size_type& i,const key_type& k) const{
+        if (is_set(i)) return is_more(data[i].first,k);
+        return hash_type(i*inversed)>order(k);
+      }
+      size_type inline find_first() const {
+        size_type i=0;
+        if (i>=datasize) return ~size_type(0);
         while(true){
-          if (!is_set(i)) return i;
-          const size_t k = i/digits<size_t>();
-          const size_t l = i%digits<size_t>();
-          const size_t m = (~size_t(0))<<(digits<size_t>()-l-1);
-          if constexpr (smartskip){
-            const size_t p = ((~(mask[k]&m))>>(digits<size_t>()-l-1));
-            const size_t n = l+1;
-            const size_t s = clz(reflect(p))>n?n:clz(reflect(p));
-            i-=s;
-          } else {
-            if ((mask[k]&m)==m)
-              i=(i/digits<size_t>()-1)*digits<size_t>()+digits<size_t>()-1;
-            else --i;
+          const size_type k = i/digits<size_type>();
+          const size_type l = i%digits<size_type>();
+          const size_type m = (~size_type(0))>>l; 
+          assert(k<masksize);
+          size_type p = (mask[k]&m)<<l;
+          if (k+1<masksize)
+            p|=shr(mask[k+1]&(~m),digits<size_type>()-l);
+          const size_type s = clz(p);
+          if (s==0) return i;
+          i+=s;
+          if (i>=datasize) return ~size_type(0);
+        }
+      }
+      // search for free bucket in decreasing order
+      size_type inline search_free_dec(size_type i) const {
+        //cout << "search_free_dec(" << i << ")" << endl;
+        while(true){
+          //if (!is_set(i)) return i; // this should not be necessary
+          //if (!is_set(i)) cout << "position is free" << endl;
+          const size_type k = i/digits<size_type>();
+          const size_type l = i%digits<size_type>();
+          const size_type m = (~size_type(0))<<(digits<size_type>()-l-1);
+          assert(k<masksize);
+                size_type p = ((~(mask[k]&m))>>(digits<size_type>()-l-1));
+          if (k!=0) p|=shl(~(mask[k-1]&(~m)),l+1);
+          //cout << "p      =" << std::bitset<digits<size_type>()>(p) << endl;
+          //const size_type n = l+1;
+          //const size_type s = ctz(p)>n?n:ctz(p);
+          const size_type s = ctz(p);
+          //cout << i << " " << s << " " << datasize << endl;
+          //cout << k << endl;
+          //cout << "mask[k]=" << std::bitset<64>(mask[k]) << endl;
+          if (s==0){
+            assert(!is_set(i));
+            return i;
           }
+          i-=s;
           if (i>datasize) return datasize;
         }
       }
-      size_t const inline search_forward(size_t i){ // search for free bucket
+      // search for free bucket in increasing order
+      size_type inline search_free_inc(size_type i) const {
+        //cout << "search_free_inc(" << i << ")" << endl;
         while(true){
-          if (!is_set(i)) return i;
-          const size_t k = i/digits<size_t>();
-          const size_t l = i%digits<size_t>();
-          const size_t m = (~size_t(0))>>l; 
-          if constexpr (smartskip){
-            const size_t p = (~(mask[k]&m))<<l;          
-            const size_t n = digits<size_t>()-l;
-            const size_t s = clz(p)>n?n:clz(p);
-            i+=s;
-          } else {
-            if ((mask[k]&m)==m) i=(i/digits<size_t>()+1)*digits<size_t>();
-            else ++i;
+          //if (!is_set(i)) cout << "position is free" << endl;
+          //if (!is_set(i)) return i; // this should not be necessary
+          const size_type k = i/digits<size_type>();
+          const size_type l = i%digits<size_type>();
+          const size_type m = (~size_type(0))>>l; 
+          assert(k<masksize);
+                size_type p = (~(mask[k]&m))<<l;
+          if (k+1<masksize) p|=shr(~(mask[k+1]&(~m)),digits<size_type>()-l);
+          //cout << "p      =" << std::bitset<digits<size_type>()>(p) << endl;
+          //const size_type n = digits<size_type>()-l;
+          //const size_type s = clz(p)>n?n:clz(p);
+          const size_type s = clz(p);
+          //cout << i << " " << s << " " << datasize << endl;
+          //cout << k << endl;
+          //cout << "mask[k]=" << std::bitset<64>(mask[k]) << endl;
+          if (s==0){
+            assert(!is_set(i));
+            return i;
           }
+          i+=s;
           if (i>datasize) return datasize;
         }
       }
-      size_t const inline insert_node(const K& key,const size_t& hint){
-        //cout << "insert_node(" << key << ", " << hint << ")" << endl; 
-        size_t i = hint;
-        const H ok = order(key);
+      size_type const inline insert_node(const key_type& key,const size_t& hint){
+        assert(hint<datasize);
+        //cout << "hint = " << hint << endl;
+        size_type i = hint;
+        while(i+1<datasize){
+          if (index_key_is_less(i+1,key)) ++i;
+          else break;
+        }
+        while(i!=0){
+          if (index_key_is_more(i-1,key)) --i;
+          else break;
+        }
+        const hash_type ok = order(key);
         if (ok < index(i)) {
-          const size_t j = search_backward(i);
-          if (j==datasize) i = search_forward(i);
+          const size_type  j = search_free_dec(i);
+          if (j>=datasize) i = search_free_inc(i);
           else i = j;
         }else{
-          const size_t j = search_forward(i);
-          if (j==datasize) i = search_backward(i);
+          const size_type  j = search_free_inc(i);
+          if (j>=datasize) i = search_free_dec(i);
           else i = j;
         }
-        //assert(i<datasize);
-        data[i].first=key;
+        assert(i<datasize);
+        assert(!is_set(i));
+        //cout << i << " " << key << endl;
+        allocator_traits<alloc>::construct(allocator,data+i,key,mapped_type());
+        //data[i].first=key;
         set(i);
         ++num_data;
+        //cout << "insert_node at " << i << endl;
         while(true){
           if (i==0) break;
+          //cout << i-1 << " " << i << endl;
+          //cout << index(i-1) << " " << index(i) << endl;
           if (!is_set(i-1)) break;
-          if (order(data[i].first)<order(data[i-1].first))
+          if (is_less(data[i].first,data[i-1].first))
             swap(data[i],data[i-1]);
           else break;
           --i;
         }
         while(true){
           if (i+1>=datasize) break;
+          //cout << i << " " << i+1 << endl;
+          //cout << index(i) << " " << index(i+1) << endl;
           if (!is_set(i+1)) break;
-          if (order(data[i].first)>order(data[i+1].first))
+          if (is_more(data[i].first,data[i+1].first))
             swap(data[i],data[i+1]);
           else break;
           ++i;
         }
-        //cout << "inserted at " << i << endl;
+        //assert(check_ordering());
         return i;
       }
-      size_t const inline insert_node(const K& key){
-        const size_t hint = map(order(key));
-        //assert(hint<datasize);
+      // TODO move version insert_node(K&& key)
+      size_type inline insert_node(const key_type& key){
+        const size_type hint = map(order(key));
+        assert(hint<datasize);
         return insert_node(key,hint);
       }
-      size_t const inline forward_linear_search(
-          const K& k,
-          const size_t& i) const {
-        for (size_t j=0;;++j){
-          if (i+j==datasize) return datasize;
-          if (is_set(i+j)) if (data[i+j].first==k) return i+j;
-          if (index(i+j)>order(k)) return datasize;
-        }
-      }
-      size_t const inline backward_linear_search(
-          const K& k,
-          const size_t& i) const {
-        for (size_t j=0;;++j){
-          if (i-j>=datasize) return datasize;
-          if (is_set(i-j)) if (data[i-j].first==k) return i-j;
-          if (index(i-j)<order(k)) return datasize;
-        }
-      }
-      size_t const inline bidirectional_linear_search(
-          const K& k,
-          const size_t& i) const {
-        if (data[i].first == k) return i;
-        size_t j;
-        for(j=1;;++j){
-          if (i+j<datasize){
-            if (is_set(i+j)) if (data[i+j].first==k) return i+j;
-            if (index(i+j)!=order(k)) return backward_linear_search(k,i-j);
-          } else return backward_linear_search(k,i-j);
-          if (i>=j){
-            if (is_set(i-j)) if (data[i-j].first==k) return i-j;
-            if (index(i-j)!=order(k)) return forward_linear_search(k,i+j+1);
-          } else return forward_linear_search(k,i+j+1);
-        }
-        return datasize;
-      }
-      size_t const inline find_node_binary(
-          const K& k,
-          const size_t& lo, // inclusive bounds
-          const size_t& hi  // inclusive bounds
+      size_type inline find_node_binary(
+          const key_type& k,
+          const size_type& lo, // inclusive bounds
+          const size_type& hi  // inclusive bounds
           ) const {
-        const H ok = order(k);
-        const size_t mi = (hi+lo)/2;
-        const H     imi = index(mi);
-        if (imi==ok) return bidirectional_linear_search(k,mi);
-        if ( hi==lo) return datasize;
-        if (imi <ok) return find_node_binary(k,mi+1,hi);
-        else         return find_node_binary(k,lo  ,mi);
+        //cout << "find_node_binary(" <<lo << ", " << hi << ")"<< endl;  
+        const size_type  mi = (hi+lo)/2;
+        if (is_set(mi)) if (data[mi].first==k) return mi;
+        if (hi==lo) return datasize;
+        if (index_key_is_less(mi,k)) return find_node_binary(k,mi+1,hi);
+        else                         return find_node_binary(k,lo  ,mi);
       }
-      size_t const inline find_node_interpol(
-          const K& k,
-          const size_t& lo,
-          const size_t& hi
+      size_type inline find_node_interpol(
+          const key_type& k,
+          const size_type& lo,
+          const size_type& hi
           ) const {
-        //assert(lo<=hi||datasize==0);
-        const H ok = order(k);
+        assert(lo<=hi||datasize==0);
+        const hash_type ok = order(k);
         if (hi-lo<257) return find_node_binary(k,lo,hi);
-        const size_t l = log2(hi-lo);
-        const H ihi = index(hi);
-        const H ilo = index(lo);
-        //assert(ilo<=ok);
-        //assert(ihi>=ok);
+        const size_type l = log2(hi-lo);
+        const hash_type ihi       = index(hi);
+        const hash_type ilo       = index(lo);
+        assert(ilo<=ok);
+        assert(ihi>=ok);
         if (((ihi-ilo)>>l)==0) return find_node_binary(k,lo,hi);
-        size_t mi = lo+(size_t((ok-ilo)>>l)*(hi-lo))/size_t((ihi-ilo)>>l);
+        size_type mi = lo+(size_t((ok-ilo)>>l)*(hi-lo))/size_t((ihi-ilo)>>l);
         if (mi==lo) ++mi;
         else if (mi==hi) --mi;
-        const H imi = index(mi);
-        //assert(mi<=hi);
-        //assert(mi>=lo);
-        //assert(imi<=ihi);
-        //assert(imi>=ilo);
-        if (imi==ok) return bidirectional_linear_search(k,mi);
-        if (imi <ok) return find_node_interpol(k,mi,hi);
-        return              find_node_interpol(k,lo,mi);
+        const hash_type imi = index(mi);
+        assert(mi<=hi);
+        assert(mi>=lo);
+        assert(imi<=ihi);
+        assert(imi>=ilo);
+        if (index_key_is_less(mi,k)) return find_node_interpol(k,mi,hi);
+        else                         return find_node_interpol(k,lo,mi);
       }
-      size_t const inline find_node(const K& k) const {
-        const H ok = order(k);
-        size_t  i  = map(ok);
+      size_type inline find_node(const key_type& k,const size_type& hint)
+        const {
+        //cout << "find_node " << k << endl;
+        size_type i = hint;
         if (i>=datasize) return datasize;
-        if (index(i)==ok) return bidirectional_linear_search(k,i);
-        size_t lo=0;
-        size_t hi=datasize-1;
-        if (index(i) <ok){
+        size_type lo=0;
+        size_type hi=datasize-1;
+        if (index_key_is_less(i,k)){
           lo = i;
-          size_t d = map(ok-index(i))+1;
-          for (size_t j=0;j!=2;++j){
+          size_type d = map(order(k)-index(i))+1;
+          for (size_type j=0;j!=2;++j){
             if (i+d<datasize){
               i+=d;
               d+=d;
-              if (index(i)>ok){
+              if (index_key_is_more(i,k)){
                 hi = i;
                 break;
               } else {
@@ -975,12 +348,12 @@ namespace wmath{
           }
         }else{
           hi = i;
-          size_t d = map(index(i)-ok)+1;
-          for (size_t j=0;j!=2;++j){
+          size_type d = map(index(i)-order(k))+1;
+          for (size_type j=0;j!=2;++j){
             if (i>=d){
               i-=d;
               d+=d;
-              if (index(i)<=ok){
+              if (!index_key_is_more(i,k)){
                 lo = i;
                 break;
               } else {
@@ -993,37 +366,40 @@ namespace wmath{
         }
         return find_node_interpol(k,lo,hi);
       }
+      size_type const inline find_node(const key_type& k)
+      const { return find_node(k,map(order(k))); }
+      template<typename map_type>
+      typename conditional<is_const<map_type>::value,
+                           const mapped_type&,
+                           mapped_type&>::type
+      static inline const_noconst_at(map_type& hashmap,const key_type& k) {
+        size_type i = hashmap.find_node(k);
+        if (i<hashmap.datasize){
+          assert(hashmap.is_set(i));
+          return hashmap.data[i].first;
+        } else throw std::out_of_range(
+            std::string(typeid(hashmap).name())
+            +".const_noconst_at("+typeid(k).name()+" k)"
+            +"key not found, array index "
+            +to_string(i)+" out of bounds"
+           );
+      }
     public:
-      ordered_patch_map(const size_t& datasize = 0)          // constructor
+      ordered_patch_map(const size_type& datasize = 0)          // constructor
         :datasize(datasize)
       {
         num_data = 0;
         nextsize = datasize*3/2+1;
         inversed = inverse(datasize);
-        data = new pair<K,T>[datasize];
-        masksize = (datasize+digits<size_t>()-1)/digits<size_t>();
-        mask = new size_t[masksize]();
+        //data     = new value_type[datasize];
+        data     = allocator_traits<alloc>::allocate(allocator,datasize);
+        masksize = (datasize+digits<size_type>()-1)/digits<size_type>();
+        mask = new size_type[masksize]();
       }
       ~ordered_patch_map(){                                  // destructor
         delete[] mask;
-        delete[] data;
-      }
-      ordered_patch_map(const ordered_patch_map& other){     // copy constructor
-        num_data = other.num_data;
-        datasize = other.datasize;
-        inversed = other.inversed;
-        nextsize = other.nextsize;
-        masksize = other.masksize;
-        mask = new size_t[masksize];
-        memcpy(reinterpret_cast<void*>(mask),
-               reinterpret_cast<void*>(other.mask),
-               masksize*sizeof(size_t));
-        data = new pair<K,T>[datasize];
-        if constexpr (is_trivially_copyable<pair<K,T>>::value)
-          memcpy(reinterpret_cast<void*>(data),
-                 reinterpret_cast<void*>(other.data),
-                 datasize*sizeof(pair<K,T>));
-        else for (size_t i=0;i!=datasize;++i) data[i]=other.data[i];
+        allocator_traits<alloc>::deallocate(allocator,data,datasize);
+        //delete[] data;
       }
       ordered_patch_map(ordered_patch_map&& other) noexcept  // move constructor
       {
@@ -1036,12 +412,83 @@ namespace wmath{
         swap(nextsize,other.nextsize);
         swap(masksize,other.masksize);
       }
-      ordered_patch_map& operator=                           // copy assignment
+      template<
+        class key_type_other,
+        class mapped_type_other,
+        class hash_other,
+        class equal_other,
+        class comp_other,
+        class alloc_other
+              >
+      inline ordered_patch_map& operator=                   // copy assignment
+        (const ordered_patch_map<
+           key_type_other,
+           mapped_type_other,
+           hash_other,
+           equal_other,
+           comp_other,
+           alloc_other
+         >& other)
+      {
+        typedef ordered_patch_map<
+           key_type_other,
+           mapped_type_other,
+           hash_other,
+           equal_other,
+           comp_other,
+           alloc_other
+         > other_type;
+        delete[] mask;
+        allocator_traits<alloc>::deallocate(allocator,data,datasize);
+        num_data = other.num_data;
+        datasize = other.datasize;
+        inversed = other.inversed;
+        nextsize = other.nextsize;
+        masksize = other.masksize;
+        mask = new size_type[masksize]();
+        data = allocator_traits<alloc>::allocate(allocator,datasize);
+        if constexpr (
+            is_same<hash , hash_other>::value
+          &&is_same<equal,equal_other>::value
+          &&is_same<comp , comp_other>::value
+          ){
+          memcpy(reinterpret_cast<void*>(mask),
+                 reinterpret_cast<void*>(other.mask),
+                 masksize*sizeof(size_t));
+          if constexpr (
+              is_trivially_copyable<value_type>::value
+            &&is_same<value_type,typename other_type::value_type>::value)
+            memcpy(reinterpret_cast<void*>(data),
+                   reinterpret_cast<void*>(other.data),
+                   datasize*sizeof(value_type));
+          else for (size_type i=0;i!=datasize;++i) data[i]=other.data[i];
+        } else {
+          for (auto it=other.begin();it!=other.end();++it) insert(*it);
+        }
+      }
+      ordered_patch_map(const ordered_patch_map& other){
+        num_data = other.num_data;
+        datasize = other.datasize;
+        inversed = other.inversed;
+        nextsize = other.nextsize;
+        masksize = other.masksize;
+        mask = new size_type[masksize]();
+        data = allocator_traits<alloc>::allocate(allocator,datasize);
+        memcpy(reinterpret_cast<void*>(mask),
+               reinterpret_cast<void*>(other.mask),
+               masksize*sizeof(size_t));
+          if constexpr (is_trivially_copyable<value_type>::value)
+            memcpy(reinterpret_cast<void*>(data),
+                   reinterpret_cast<void*>(other.data),
+                   datasize*sizeof(value_type));
+        else for (size_type i=0;i!=datasize;++i) data[i]=other.data[i];
+      }
+      inline ordered_patch_map& operator=                   // copy assignment
         (const ordered_patch_map& other)
       {
         return *this = ordered_patch_map(other);
       }
-      ordered_patch_map& operator=                           // move assignment
+      inline ordered_patch_map& operator=                   // move assignment
         (ordered_patch_map&& other)
         noexcept{
         swap(mask,other.mask);
@@ -1052,8 +499,8 @@ namespace wmath{
         swap(masksize,other.masksize);
         return *this;
       }
-      size_t erase(const K& k){
-        size_t i = find_node(k);
+      size_type erase(const key_type& k,const size_type& hint){
+        size_type i = find_node(k,hint);
         if (i==datasize) return 0;
         while(true){
           if (i+1==datasize) break;
@@ -1070,73 +517,650 @@ namespace wmath{
           --i;
         }
         unset(i);
+        //cout << "unset position " << i << endl;
         --num_data;
+        //cout << num_data << endl;
+        assert(num_data<datasize);
         return 1;
       }
-      void const inline clear(){
-        for (size_t i=0;i!=masksize;++i) mask[i]=0;
+      size_type erase(const key_type& k){
+        return erase(k,map(order(k)));
       }
-      void const inline resize(const size_t& n){
+      void inline clear(){
+        for (size_type i=0;i!=masksize;++i) mask[i]=0;
+        num_data=0;
+      }
+      void const resize(const size_type& n){
         //cout << "resizing from " << datasize << " to " << n << endl;
-        pair<K,T> * olddata      = new pair<K,T>[n];
-        masksize = (n+digits<size_t>()-1)/digits<size_t>();
-        size_t * oldmask = new size_t[masksize]();
+        if (n<num_data) return;
+        value_type * olddata = allocator_traits<alloc>::allocate(allocator,n);
+        //value_type * olddata = new value_type[n];
+        masksize = (n+digits<size_type>()-1)/digits<size_type>();
+        size_type * oldmask = new size_type[masksize]();
         swap(olddata,data);
         swap(oldmask,mask);
-        size_t oldsize = datasize;
+        const size_type olddatasize = datasize;
         datasize = n;
-        nextsize = datasize+oldsize;
+        nextsize = datasize+olddatasize;
         num_data = 0;
         inversed = inverse(datasize);
-        size_t j = 0;
-        for (size_t i=0;i!=oldsize;++i){
-          const size_t k = i/digits<size_t>();
-          const size_t l = i%digits<size_t>();
-          if (oldmask[k]&(size_t(1)<<(digits<size_t>()-l-1)))
+        size_type j = 0;
+        for (size_type i=0;i!=olddatasize;++i){
+          const size_type k = i/digits<size_type>();
+          const size_type l = i%digits<size_type>();
+          if (oldmask[k]&(size_type(1)<<(digits<size_type>()-l-1)))
             data[insert_node(olddata[i].first)].second=olddata[i].second;
+            //operator[](olddata[i].first)=olddata[i].second;
         }
+        assert(check_ordering());
+        assert(test_size()==num_data);
         //cout << "test" << endl;
-        delete[] olddata;
+        allocator_traits<alloc>::deallocate(allocator,olddata,olddatasize);
+        //delete[] olddata;
         delete[] oldmask;
       }
-      size_t const inline size() const {
-        return num_data;
-      }
-      size_t const inline test_size() const {
-        size_t test = 0;
-        for (size_t i=0;i!=datasize;++i) test += is_set(i);
+      size_type inline size() const { return num_data; }
+      size_type const test_size() const {
+        size_type test = 0;
+        for (size_type i=0;i!=datasize;++i) test += is_set(i);
         return test;
       }
-      void const inline test_chunks() const {
-        for (size_t i=0;i!=masksize;++i){
+      void test_chunks() const {
+        for (size_type i=0;i!=masksize;++i){
           cout << popcount(mask[i]) << endl;
         }
       }
-      bool const inline check_ordering() const {
-        for (size_t i=0,j=1;j<datasize;(++i,++j))
-          if (index(i)>index(j)){
-            cout << i << " " << j << endl;
-            cout << double(index(i))/pow(2.0,64.0) << " "
-                 << double(index(j))/pow(2.0,64.0) << endl;
-            return false;
-          }
+      bool check_ordering() const {
+        for (size_type i=0,j=1;j<datasize;(++i,++j)){
+          if (index_index_is_less(i,j)) continue;
+          cout << is_set(i) << " " << is_set(j) << endl;
+          cout << i << " " << j << endl;
+          cout << index(i) << " " << index(j) << endl;
+          cout << double(index(i))/pow(2.0,64.0) << " "
+               << double(index(j))/pow(2.0,64.0) << endl;
+          return false;
+        }
         return true;
       }
-      T& operator[](const K& k){
-        //cout << "operator[" << k << "]" << endl;
-        const size_t i = find_node(k);
-        if (i!=datasize) return data[i].second;
-        //while ((num_data+2)*4>=datasize*3) resize(nextsize);
-        while ((num_data+2)*5>=datasize*4) resize(nextsize);
-        //while ((num_data+2)*8>=datasize*7) resize(nextsize);
-        //while ((num_data+2)*16>=datasize*15) resize(nextsize);
-        //while ((num_data+2)*32>=datasize*31) resize(nextsize);
-        //if ((num_data+2)*64>=datasize*64) resize(nextsize);
+      void inline enshure_size(){
+        //while ((num_data+2)*4>=datasize*3) resize(nextsize); // 0.75
+        while ((num_data+2)*9>=datasize*7) resize(nextsize); // 0.777777...
+        //while ((num_data+2)*5>=datasize*4) resize(nextsize); // 0.8
+        //while ((num_data+2)*8>=datasize*7) resize(nextsize); // 0.875
+        //while ((num_data+2)*16>=datasize*15) resize(nextsize); // 0.9375
+        //while ((num_data+2)*32>=datasize*31) resize(nextsize); // 0.96875
+        //while ((num_data+2)*64>=datasize*63) resize(nextsize); // 0.984375
+      }
+      mapped_type& operator[](const key_type& k){
+        const size_type i = find_node(k);
+        if (i<datasize) return data[i].second;
+        enshure_size();
         return data[insert_node(k)].second;
       }
-      size_t const inline count(const K& k){
-        return (find_node(k)!=datasize);
+      const mapped_type& operator[](const key_type& k) const {
+        const size_type i = find_node(k);
+        assert(i<datasize);
+        return data[i].second; // this is only valid if key exists!
       }
-  };
+      mapped_type& at(const key_type& k){
+        return const_noconst_at(*this,k);
+      }
+      const mapped_type& at(const key_type& k) const {
+        return const_noconst_at(*this,k);
+      }
+      size_type const inline count(const key_type& k) const {
+        return (find_node(k)<datasize);
+      }
+      template<class key_type_other,
+               class mapped_type_other,
+               class hash_other,
+               class equal_other,
+               class comp_other,
+               class alloc_other
+              >
+      bool operator==(
+          const ordered_patch_map<
+            key_type_other,
+            mapped_type_other,
+            hash_other,
+            equal_other,
+            comp_other,
+            alloc_other>& other)
+      const {
+        if (datasize!=other.datasize) return false;
+        if constexpr (
+            is_same<hash , hash_other>::value
+          &&is_same<equal,equal_other>::value
+          &&is_same<comp , comp_other>::value
+          ){
+          auto it0 = begin();
+          auto it1 = other.begin();
+          while (true){
+            if (it0==end()) return true;
+            if ((*it0)!=(*it1)) return false;
+            ++it0;++it1;
+          }
+        } else {
+          for (auto it=other.begin();it!=other.end();++it){
+            if (count(it->first)) if (at(it->first)==it->second) continue;
+            return false;
+          }
+          return true;
+        }
+      }
+      template<class key_type_other,
+               class mapped_type_other,
+               class hash_other,
+               class equal_other,
+               class comp_other,
+               class alloc_other
+              >
+      bool operator!=(
+          const ordered_patch_map<
+            key_type_other,
+            mapped_type_other,
+            hash_other,
+            equal_other,
+            comp_other,
+            alloc_other>& o)
+      const{ return !((*this)==o); }
+      equal key_eq() const{ // get key equivalence predicate
+        return equal{};
+      }
+      comp key_comp() const{ // get key order predicate
+        return comp{};
+      }
+      alloc get_allocator() const{
+        return allocator;
+      }
+      hash hash_function() const{ // get hash function
+        return hash{};
+      }  
+      template<bool is_const>
+      class const_noconst_iterator {
+        friend class ordered_patch_map;
+        public:
+          size_type hint;
+          key_type key;
+          typename conditional<is_const,
+                               const ordered_patch_map*,
+                               ordered_patch_map*
+                              >::type map;
+        private:
+          void inline update_hint(){
+            if constexpr (!uphold_iterator_validity::value) return;
+            if (hint<map->datasize) if (map->data[hint].first==key) return;
+            hint = map->find_node(key,hint);
+            if (hint>=map->datasize) hint = ~size_type(0);
+          }
+          void inline unsafe_increment(){ // assuming hint is valid
+            //cout << "unsafe_increment() " << hint << " " << key << endl;
+            if (++hint>=map->datasize){
+              //cout << "test1" << endl;
+              //cout << "becoming an end()" << endl;
+              hint=~size_type(0);
+              return;
+            }
+            while(true){
+              //cout << "test2" << endl;
+              const size_type k = hint/digits<size_type>();
+              const size_type l = hint%digits<size_type>();
+              const size_type m = (~size_type(0))>>l; 
+              assert(k<map->masksize);
+              size_type p = (map->mask[k]&m)<<l;
+              if (k+1<map->masksize)
+                p|=shr(map->mask[k+1]&(~m),digits<size_type>()-l);
+              const size_type s = clz(p);
+              if (s==0) break;
+              hint+=s;
+              //cout << hint << " " << s << endl;
+              if (hint>=map->datasize){
+                //cout << "test3" << endl;
+                //cout << "becoming an end()" << endl;
+                hint=~size_type(0);
+                return;
+              }
+            }
+            //cout << "test4" << endl;
+            //cout << "new hint=" << hint << endl;
+            key = map->data[hint].first;
+            //cout << "new key=" << key << endl;
+          }
+          void inline unsafe_decrement(){ // assuming hint is valid
+            if (--hint>=map->datasize){
+              hint=~size_type(0);
+              return;
+            }
+            while(true){
+              const size_type k = hint/digits<size_type>();
+              const size_type l = hint%digits<size_type>();
+              const size_type m = (~size_type(0))<<(digits<size_type>()-l-1);
+              assert(k<map->masksize);
+              size_type p = (map->mask[k]&m)>>(digits<size_type>()-l-1);
+              if (k!=0) p|=shl(map->mask[k-1]&(~m),l+1);
+              const size_type s = ctz(p);
+              if (s==0) break;
+              hint-=s;
+              if (hint>=map->datasize){
+                hint=~size_type(0);
+                return;
+              }
+            }
+            key = map->data[hint].first;
+          }
+          template<bool is_const0,bool is_const1>
+          difference_type inline friend diff(
+              const_noconst_iterator<is_const0>& it0,
+              const_noconst_iterator<is_const1>& it1){
+            if (it1<it0) return -diff(it0,it1);
+            it0.update_hint();
+            it1.update_hint();
+            const size_type k0 = it0->hint/digits<size_type>();
+            const size_type l0 = it0->hint%digits<size_type>();
+            const size_type m0 = (~size_type(0))>>l0;
+            const size_type k1 = it1->hint/digits<size_type>();
+            const size_type l1 = it1->hint%digits<size_type>();
+            const size_type m1 = (~size_type(0))<<(digits<size_type>()-l1-1);
+            if (k0==k1) return popcount(m0&m1&it0.map->mask[k0])-1;
+            size_type d = popcount(m0&it0.map->mask[k0])
+                         +popcount(m1&it1.map->mask[k1]);
+            for (size_type i = k0+1;i!=k1;++i)
+              d+=popcount(it0.map->mask[i]);
+            return d;
+          }
+          void inline add(const size_type& n){
+            update_hint();
+                  size_type k = hint/digits<size_type>();
+            const size_type l = hint%digits<size_type>();
+            const size_type m = (~size_type(0))>>l;
+                  size_type i = 0;
+                  size_type p = popcount(map->mask[k]&m)-1; 
+            while (i+p<n){
+              if (++k>=map->mapsize){
+                hint=~size_type(0);
+                return;
+              }
+              hint+=digits<size_type>();
+              p = popcount(map->mask[k]);
+            }
+            for (;i!=n;++i) unsafe_increment();
+            key = map->data[hint].first;
+          }
+          void inline sub(const size_type& n){
+            update_hint();
+                  size_type k = hint/digits<size_type>();
+            const size_type l = hint%digits<size_type>();
+            const size_type m = (~size_type(0))<<(digits<size_type>()-l-1);
+                  size_type i = 0;
+                  size_type p = popcount(map->mask[k]&m)-1;
+            while (i+p<n){
+              if (--k>=map->mapsize){
+                hint=~size_type(0);
+                return;
+              }
+              hint+=digits<size_type>();
+              p = popcount(map->mask[k]);
+            }
+            for (;i!=n;++i) unsafe_decrement();
+            key = map->data[hint].first;
+          }
+        public:
+          typedef typename alloc::difference_type difference_type;
+          typedef typename alloc::value_type value_type;
+          typedef typename
+            conditional<is_const,
+                        const typename alloc::reference,
+                              typename alloc::reference
+                       >::type
+            reference;
+          typedef typename
+            conditional<is_const,
+                        const typename alloc::pointer,
+                              typename alloc::pointer
+                       >::type
+            pointer;
+          typedef std::bidirectional_iterator_tag iterator_category;
+          const_noconst_iterator(){
+            //cout << "constructor 0" << endl;
+          }
+          const_noconst_iterator(
+            const size_t& hint,
+            typename conditional<is_const,
+                                 const ordered_patch_map*,
+                                       ordered_patch_map*
+                                >::type map)
+            :hint(hint),key(key_type{}),map(map){
+            //cout << "constructor 1 " << hint << endl;
+          }
+          const_noconst_iterator(
+            const size_t& hint,
+            const key_type& key,
+            typename conditional<is_const,
+                                 const ordered_patch_map*,
+                                       ordered_patch_map*
+                                >::type map)
+            :hint(hint),key(key),map(map) {
+              //cout << "constructor 2 " << hint << endl;
+          }
+          ~const_noconst_iterator(){
+          //cout << "destructor of const_noconst_iterator " << is_const << endl;
+          //cout << hint << endl;
+          }
+          // copy constructor
+          template<bool is_const_other>
+          const_noconst_iterator(const const_noconst_iterator<is_const_other>& o)
+          :hint(o.hint),key(o.key),map(o.map){
+            //cout << "copy constructor" << endl;
+          }
+          // move constructor
+          template<bool is_const_other>
+          const_noconst_iterator(
+              const_noconst_iterator<is_const_other>&& o) noexcept{
+            //cout << "move constructor" << endl;
+            swap(hint,o.hint);
+            swap(key,o.key);
+            swap(map,o.map);
+          }
+          // copy assignment
+          template<bool is_const_other>
+          const_noconst_iterator<is_const>& operator=(
+              const const_noconst_iterator<is_const_other>& other){
+            //cout << "copy assignment" << endl;
+            return  (*this=const_noconst_iterator<is_const>(other));
+          }
+          template<bool is_const_other>
+          bool operator==(
+              const const_noconst_iterator<is_const_other>& o) const {
+            //cout << "comparing " << hint << " " << key << " with "
+            //     << o.hint << " " << key << endl;
+            if ((hint>=map->datasize)&&(o.hint>=o.map->datasize)) return true;
+            if ((hint>=map->datasize)||(o.hint>=o.map->datasize)) return false;
+            if (key!=o.key) return false;
+            return true;
+          }
+          template<bool is_const_other>
+          bool operator!=(
+              const const_noconst_iterator<is_const_other>& o) const{
+            return !((*this)==o);
+          }
+          template<bool is_const_other>
+          bool operator< (
+              const const_noconst_iterator<is_const_other>& o) const{
+            if ((o.hint<o.mpa->datasize)){
+              if (hint<map->datasize){
+                return comp(key,o.key);
+              }else{
+                return false;
+              }
+            } else {
+              return false;
+            }
+          }
+          template<bool is_const_other>
+          bool operator> (
+              const const_noconst_iterator<is_const_other>& o) const{
+            if ((o.hint<o.mpa->datasize)){
+              if (hint<map->datasize){
+                return (!comp(key,o.key))&&(!equal(key,o.key));
+              }else{
+                return true;
+              }
+            } else {
+              return false;
+            }
+          }
+          template<bool is_const_other>
+          bool operator<=(
+              const const_noconst_iterator<is_const_other>& o) const{
+            if ((o.hint<o.mpa->datasize)){
+              if (hint<map->datasize){
+                return comp(key,o.key)||equal(key,o.key);
+              }else{
+                return false;
+              }
+            } else {
+              return true;
+            }
+          }
+          template<bool is_const_other>
+          bool operator>=(
+              const const_noconst_iterator<is_const_other>& o) const{
+            if ((o.hint<o.mpa->datasize)){
+              if (hint<map->datasize){
+               return !comp(key,o.key);
+              }else{
+                return true;
+              }
+            } else {
+              return true;
+            }
+          }
+          const_noconst_iterator<is_const>& operator++(){   // prefix
+            //cout << "operator++()" << endl;
+            update_hint();
+            unsafe_increment();
+            return *this;
+          }
+          const_noconst_iterator<is_const> operator++(int){ // postfix
+            update_hint();
+            iterator pre(*this);
+            unsafe_increment();
+            return pre;
+          }
+          const_noconst_iterator<is_const>& operator--(){   // prefix
+            update_hint();
+            unsafe_decrement();
+            return *this;
+          }
+          const_noconst_iterator<is_const> operator--(int){ // postfix
+            update_hint();
+            iterator pre(*this);
+            unsafe_decrement();
+            return pre;
+          }
+          // not a random_acces_iterator but we can still do better than default
+          template<bool is_const_other>
+          difference_type operator-(
+              const const_noconst_iterator<is_const_other>& o) const {
+            iterator it0(*this);
+            iterator it1(o);
+            return diff(it0,it1);
+          }
+          const_noconst_iterator<is_const>& operator+=(const size_type& n){
+            add(n);
+            return *this;
+          }
+          const_noconst_iterator<is_const> operator+(const size_type& n) const {
+            return (const_noconst_iterator<is_const>(*this)+=n);
+          }
+          friend const_noconst_iterator<is_const> operator+(
+              const size_type& n,
+              const const_noconst_iterator<is_const>& it){
+            return (const_noconst_iterator<is_const>(it)+=n);
+          }
+          const_noconst_iterator<is_const>& operator-=(const size_type& n){
+            sub(n);
+            return *this;
+          }
+          const_noconst_iterator<is_const> operator-(const size_type& n) const{
+            return (const_noconst_iterator<is_const>(*this)-=n);
+          }
+          reference operator*() {
+            update_hint();
+            return map->data[hint];
+          }
+          pointer operator->() {
+            update_hint();
+            return &(map->data[hint]);
+          }
+          reference operator*() const {
+            size_type i;
+            if (hint>=map->datasize){
+              i = map->find_node(key);
+            } else if (map->data[hint]!=key){
+              i = map->find_node(key,hint);
+            } else {
+              i = hint;
+            }
+            return map->data[i];
+          }
+          pointer operator->() const {
+            size_type i;
+            if (hint>=map->datasize){
+              i = map->find_node(key);
+            } else if (map->data[hint]!=key){
+              i = map->find_node(key,hint);
+            } else {
+              i = hint;
+            }
+            return &(map->data[i]);
+          }
+    };
+    typedef const_noconst_iterator<false> iterator;
+    typedef const_noconst_iterator<true>  const_iterator;    
+    iterator begin(){
+      //cout << "begin()" << endl;
+      const size_type i = find_first();
+      //cout << "this should call constructor 2" << endl;
+      return iterator(i,data[i].first,this);
+    }
+    const_iterator begin() const {
+      //cout << "begin()" << endl;
+      const size_type i = find_first();
+      //cout << "this should call constructor 2" << endl;
+      return const_iterator(i,data[i].first,this);
+    }
+    const_iterator cbegin() const {
+      //cout << "cbegin()" << endl;
+      const size_type i = find_first();
+      //cout << "this should call constructor 2" << endl;
+      return const_iterator(i,data[i].first,this);
+    }
+    iterator end() {
+      //cout << "end()" << endl;
+      const size_type i = find_first();
+      //cout << "this should call constructor 1" << endl;
+      return iterator(~size_type(0),this);
+    }
+    const_iterator end() const {
+      //cout << "end()" << endl;
+      //cout << "this should call constructor 2" << endl;
+      return const_iterator(~size_type(0),this);
+    }
+    const_iterator cend() const {
+      //cout << "cend()" << endl;
+      //cout << "this should call constructor 2" << endl;
+      return const_iterator(~size_type(0),this);
+    }
+    // void swap(unordered_patch_map&); // TODO
+    size_type max_size()         const{return numeric_limits<size_type>::max();}
+    bool empty()                 const{return (num_data==0);}
+    size_type bucket_count()     const{return datasize;}
+    size_type max_bucket_count() const{return numeric_limits<size_type>::max();}
+    void rehash(const size_type& n) { if (n>=size()) resize(n); }
+    void reserve(const size_type& n){ if (3*n>=2*(size()+1)) resize(n*3/2); }
+    pair<iterator,bool> insert ( const value_type& val ){
+      const size_type i = find(val.first);
+      if (i<datasize) return {iterator(i,val.first,this),false};
+      enshure_size();
+      const size_type j = insert_node(val.first);
+      data[j].second=val.second;
+      return {data[j],true};
+    }
+    template <class P>
+    pair<iterator,bool> insert ( P&& val ){
+      const size_type i = find(val.first);
+      if (i<datasize) return {iterator(i,val.first,this),false};
+      enshure_size();
+      const size_type j = insert_node(val.first);
+      swap(data[j].second,val.second);
+      return {data[j],true};
+    }
+    iterator insert ( const_iterator hint, const value_type& val ){
+      const size_type i = find(val.first,hint.hint);
+      if (i<datasize) return {iterator(i,val.first,this),false};
+      enshure_size();
+      const size_type j = insert_node(val.first);
+      data[j].second=val.second;
+      return {data[j],true};
+    }
+    template <class P>
+    iterator insert ( const_iterator hint, P&& val ){
+      const size_type i = find(val.first,hint.hint);
+      if (i<datasize) return {iterator(i,val.first,this),false};
+      enshure_size();
+      const size_type j = insert_node(val.first,hint.hint);
+      swap(data[j].second,val.second);
+      return {data[j],true};
+    }
+    template <class InputIterator>
+    void insert ( InputIterator first, InputIterator last ){
+      for (auto it(first);it!=last;++it){
+        insert(*it);
+      }
+    }
+    void insert ( initializer_list<value_type> il ){
+      insert(il.begin(),il.end());
+    }
+    template <class... Args>
+    pair<iterator, bool> emplace ( Args&&... args ){
+      insert(value_type(args...));
+    }
+    template <class... Args>
+    iterator emplace_hint(const_iterator position,Args&&... args){
+      insert(position,value_type(args...));
+    }
+    pair<iterator,iterator> equal_range(const key_type& k){
+      const size_type i = find_node(k);
+      if (i>=datasize) return {end(),end()};
+      iterator lo(i,data[i].first,this);
+      iterator hi(lo);
+      ++hi;
+      return {lo,hi};
+    }
+    pair<const_iterator,const_iterator>
+    equal_range ( const key_type& k ) const{
+      const size_type i = find_node(k);
+      if (i>=datasize) return {cend(),cend()};
+      iterator lo(i,data[i].first,this);
+      iterator hi(lo);
+      ++hi;
+      return {lo,hi};
+    }
+    float load_factor() const noexcept{
+      return float(num_data)/float(datasize);
+    }
+    float max_load_factor() const noexcept{
+      return 1;
+    }
+    template<bool is_const>
+    iterator erase(const_noconst_iterator<is_const> position){
+      iterator it(position);
+      ++it;
+      erase(position.key);//,position.hint);
+      return it;
+    }
+    template<bool is_const>
+    iterator erase(
+        const_noconst_iterator<is_const> first,
+        const_noconst_iterator<is_const> last){
+      for (auto it=first;it!=last;it=erase(it));
+    }
+
+    // void max_load_factor(float z);
+  }; 
+
+  /* TODO
+  template<class K,
+           class T,
+           class hash=hash_functor<K>,
+           class equal = std::equal_to<K>,
+           class comp = std::less<K>,
+           class A = std::allocator<std::pair<K,T>>
+          >
+  void swap(ordered_patch_map<K,K,hash,equal,comp,A>&,
+            ordered_patch_map<K,K,hash,equal,comp,A>&);
+  */
+  
 }
 #endif // ORDERED_PATCH_MAP_H
