@@ -50,12 +50,12 @@ int main(){
   size_t * cache0 = new size_t[1024];
   size_t * cache1 = new size_t[1024];
   for (size_t i=0;i!=67108864ul;i+=1024){
-    for (size_t j=0;j!=1024;++j){
+    /*for (size_t j=0;j!=1024;++j){
       cache1[j]=cache0[j]=i+j;
-    }
+    }*/
     auto start = std::chrono::high_resolution_clock::now();
     for (size_t j=0;j!=1024;++j){
-      const size_t r = cache0[j]; // reverse(i+j);// distr(mr);
+      const size_t r = i*i*j; // cache[j] // reverse(i+j);// distr(mr);
       test[r]=r;
     }
     auto finish = std::chrono::high_resolution_clock::now();
@@ -63,7 +63,7 @@ int main(){
     start = finish;
     size_t n = 0;
     for (size_t j=0;j!=1024;++j){
-      const size_t r = cache1[j];
+      const size_t r = i*i*j;//i+j+10000012;// cache1[j];
       /*if (r%3==0){
         if (!test.erase(r)){
           cout << "map broken (element not found)" << endl;
@@ -73,6 +73,7 @@ int main(){
       n+=test.count(r);
     }
     finish = std::chrono::high_resolution_clock::now();
+    //const double a = test.average_offset();
     cout << (finish-start).count() << " " << n << endl;
     start = finish;
   }
