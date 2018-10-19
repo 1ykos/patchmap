@@ -39,7 +39,7 @@ int main(){
     cout << "::" << int(i) << " " << int(n) << endl;
   }
   return 0;*/
-  ordered_patch_map<size_t,size_t> test;
+  ordered_patch_map<uint64_t,uint64_t> test;
   //ordered_patch_map<size_t,size_t,wmath::insecure_hash_functor<size_t>> test(32);
   //std::unordered_map<size_t,size_t> test;
   std::uniform_int_distribution<size_t> distr;
@@ -55,7 +55,7 @@ int main(){
     }*/
     auto start = std::chrono::high_resolution_clock::now();
     for (size_t j=0;j!=1024;++j){
-      const size_t r = i*i*j; // cache[j] // reverse(i+j);// distr(mr);
+      const uint32_t r = i+j; // cache[j] // reverse(i+j);// distr(mr);
       test[r]=r;
     }
     auto finish = std::chrono::high_resolution_clock::now();
@@ -63,7 +63,7 @@ int main(){
     start = finish;
     size_t n = 0;
     for (size_t j=0;j!=1024;++j){
-      const size_t r = i*i*j;//i+j+10000012;// cache1[j];
+      const uint32_t r = i+j;//i+j+10000012;// cache1[j];
       /*if (r%3==0){
         if (!test.erase(r)){
           cout << "map broken (element not found)" << endl;
