@@ -38,8 +38,11 @@ namespace wmath{
     return clmul_mod(a,uint32_t(3107070805ul));
   }
   uint64_t const inline distribute(const uint64_t& a){
-    return rol(a*16123805160827025777ull,21)*16123805160827025777ull;
-    return clmul_mod(a,uint64_t(16123805160827025777ull));
+    return rol((a+16123805160827025777ull)*3619632413061963241ull,32)
+      *16123805160827025777ull;
+    return (a+3619632413061963241ull)*16123805160827025777ull;
+    return clmul_mod(a,uint64_t(16123805160827025777ull))
+          *16123805160827025777ull;
   }
 
   template<typename T>
@@ -88,32 +91,64 @@ namespace wmath{
       hash_type inline order(const key_type& k) const {
         return distribute(hasher(k));
       }
-      bool inline is_less(const key_type& a,const key_type& b) const {
-        if constexpr (is_injective<hash>::value)
-          assert(equator(a,b)==(order(a)==order(b)));
-        if (order(a)<order(b)) return true;
-        if (order(a)>order(b)) return false;
-        if constexpr (is_injective<hash>::value) return false;
-        return comparator(a,b);
+      bool inline is_less(
+          const key_type& a,
+          const key_type& b,
+          const hash_type& oa,
+          const hash_type& ob
+          ) const {
+        if constexpr (is_injective<hash>::value){
+          assert(equator(a,b)==(oa==ob));
+          if (oa<ob) return true;
+          else       return false;
+        } else {
+          if (oa<ob) return true;
+          if (oa>ob) return false;
+          return comparator(a,b);
+        }
       }
-      bool inline is_more(const key_type& a,const key_type& b) const {
-        if constexpr (is_injective<hash>::value)
-          assert(equator(a,b)==(order(a)==order(b)));
-        if (order(a)>order(b)) return true;
-        if (order(a)<order(b)) return false;
-        if constexpr (is_injective<hash>::value) return false;
-        return !((comparator(a,b))||(equator(a,b)));
+      bool inline is_less(
+          const key_type& a,
+          const key_type& b,
+          const hash_type& oa
+          ) const {
+        return is_less(a,b,oa,order(b));
+      }
+      bool inline is_less(const key_type& a,const key_type& b) const {
+        return is_less(a,b,order(a),order(b));
+      }
+      bool inline is_more(
+          const key_type& a,
+          const key_type& b,
+          const hash_type& oa,
+          const hash_type& ob
+          ) const {
+        if constexpr (is_injective<hash>::value){
+          assert(equator(a,b)==(oa==ob));
+          if (oa>ob) return true;
+          else       return false;
+        } else {
+          if (oa>ob) return true;
+          if (oa<ob) return false;
+          return !((comparator(a,b))||(equator(a,b)));
+        }
+      }
+      bool inline is_more(
+          const key_type& a,
+          const key_type& b,
+          const hash_type& oa
+          ) const {
+        return is_more(a,b,oa,order(b));
+      }
+      bool inline is_more(
+          const key_type& a,
+          const key_type& b
+          ) const {
+        return is_more(a,b,order(a),order(b));
       }
       bool inline is_set(const size_type& n) const {
-        /*const size_type i = n/32;
-        const size_type j = n%32;
-        if (*(reinterpret_cast<uint32_t*>(mask)+i)&(uint32_t(1)<<(31-j)))
-          return true;
-        return false;*/
         const size_type i = n/digits<size_type>();
-        //if (!mask[i]) return false;
         const size_type j = n%digits<size_type>();
-        //cout << datasize << " " << masksize << " " << i << " " << n << endl;
         assert(i<masksize);
         return (mask[i]&(size_type(1)<<(digits<size_type>()-j-1)));
       }
@@ -155,7 +190,7 @@ namespace wmath{
       hash_type inline index(const size_type& i) const {
         assert(i<datasize);
         if (is_set(i)) return order(data[i].first);
-        return i*inversed;
+        else           return i*inversed;
       }
       bool inline index_index_is_less(const size_type& i,const size_type& j)
         const {
@@ -168,7 +203,6 @@ namespace wmath{
       }
       bool inline index_key_is_less(const size_type& i,const key_type& k) const{
         if (is_set(i)) return is_less(data[i].first,k);
-        //cout << i*inversed << " " << order(k) << endl;
         return hash_type(i*inversed)<order(k);
       }
       bool inline index_key_is_more(const size_type& i,const key_type& k) const{
@@ -234,25 +268,15 @@ namespace wmath{
           const hash_type& ok
           ){
         assert(hint<datasize);
-        size_type i = hint;
-        /*while(i+1<datasize){
-          if ((i+1)*inversed<ok) ++i;
-          else break;
-        }
-        while(i!=0){
-          if ((i-1)*inversed>ok) --i;
-          else break;
-        }*/
+        size_type i;
         assert((i+1)*inversed>ok||i==datasize-1);
         assert((i-1)*inversed<=ok||i==0);
         if (ok < index(i)) {
-          const size_type  j = search_free_dec(i);
-          if (j>=datasize) i = search_free_inc(i);
-          else i = j;
+          i = search_free_dec(hint);
+          if (i==(~size_type(0))) i = search_free_inc(hint);
         }else{
-          const size_type  j = search_free_inc(i);
-          if (j>=datasize) i = search_free_dec(i);
-          else i = j;
+          i = search_free_inc(hint);
+          if (i==(~size_type(0))) i = search_free_dec(hint);
         }
         assert(i<datasize);
         assert(!is_set(i));
@@ -268,8 +292,9 @@ namespace wmath{
           //cout << i-1 << " " << i << endl;
           //cout << index(i-1) << " " << index(i) << endl;
           if (!is_set(i-1)) break;
-          if (is_less(data[i].first,data[i-1].first))
-            swap(data[i],data[i-1]);
+          //if (is_less(key,data[i-1].first,ok)) swap(data[i],data[i-1]);
+          //if (is_less(data[i].first,data[i-1].first)) swap(data[i],data[i-1]);
+          if (is_less(key,data[i-1].first,ok)) swap(data[i],data[i-1]);
           else break;
           --i;
         }
@@ -278,13 +303,14 @@ namespace wmath{
           //cout << i << " " << i+1 << endl;
           //cout << index(i) << " " << index(i+1) << endl;
           if (!is_set(i+1)) break;
-          if (is_more(data[i].first,data[i+1].first))
-            swap(data[i],data[i+1]);
+          //if (is_more(key,ok)) swap(data[i],data[i+1]);
+          //if (is_more(data[i].first,data[i+1].first)) swap(data[i],data[i+1]);
+          if (is_more(key,data[i+1].first,ok)) swap(data[i],data[i+1]);
           else break;
           ++i;
         }
         //cout << int(i)-int(j) << " " << int(j)-int(hint) << endl;
-        //assert(check_ordering());
+        assert(check_ordering());
         return i;
       }
       size_type inline insert_node(
@@ -304,6 +330,7 @@ namespace wmath{
       }
       size_type inline find_node_binary(
           const key_type& key,
+          const hash_type& ok,
           const size_type& lo, // inclusive bounds
           const size_type& hi  // inclusive bounds
           ) const {
@@ -312,24 +339,97 @@ namespace wmath{
         assert(lo<datasize);
         assert(hi<datasize);
         assert(lo<=hi);
-        if (!is_set_any(lo,hi)) return ~size_type(0); 
-        //if (hi-lo<digits<size_t>()) return find_node_linear(key,lo,hi);
-        //if (index_key_is_less(hi,key)) return ~size_type(0);
-        //if (index_key_is_more(lo,key)) return ~size_type(0);
+        //if (!is_set_any(lo,hi)) return ~size_type(0); 
         const size_type  mi = (hi+lo)/2;
-        if (is_set(mi)) if (data[mi].first==key) return mi;
-        //if (hi==lo) return ~size_type(0);
-        //if (index_key_is_less(mi,key)){
-        //  return find_node_binary(key,mi<hi?mi+1:mi,hi);
-        //} else {
-        //  return find_node_binary(key,lo,mi>lo?mi-1:mi);
-        //}
-        if (index_key_is_less(mi,key)){
-          if (mi<hi) return find_node_binary(key,mi+1,hi);
-          else return ~size_type(0);
+        hash_type omi;
+        if (is_set(mi)){
+          if (data[mi].first==key) return mi;
+          omi = order(mi);
         } else {
-          if (mi>lo) return find_node_binary(key,lo,mi-1);
-          else return ~size_type(0);
+          omi = mi*inversed;
+        }
+        //if (hi==lo) return ~size_type(0);
+        if constexpr (is_injective<hash>::value) {
+          if (omi<ok){
+            if (mi<hi) return find_node_binary(key,ok,mi+1,hi);
+            else return ~size_type(0);
+          } else {
+            if (mi>lo) return find_node_binary(key,ok,lo,mi-1);
+            else return ~size_type(0);
+          }
+        } else {
+          if (omi<ok){
+            if (mi<hi) return find_node_binary(key,ok,mi+1,hi);
+            else return ~size_type(0);
+          } else if (omi>ok) {
+            if (mi>lo) return find_node_binary(key,ok,lo,mi-1);
+            else return ~size_type(0);
+          } else if (index_key_is_less(mi,key)) {
+            if (mi<hi) return find_node_binary(key,ok,mi+1,hi);
+            else return ~size_type(0);
+          } else {
+            if (mi>lo) return find_node_binary(key,ok,lo,mi-1);
+            else return ~size_type(0);
+          }
+        }
+      }
+      size_type inline find_node_interpol(
+          const  key_type& k,
+          const hash_type& ok,
+          const size_type& lo,
+          const hash_type& ilo,
+          const size_type& hi,
+          const hash_type& ihi
+          ) const {
+        //cout << "find_node_interpol "<< lo << " " << hi << endl;
+        //if (lo>hi) return ~size_type(0);
+        assert(lo<=hi||datasize==0);
+        if (ilo>ok) return ~size_type(0);
+        if (ihi<ok) return ~size_type(0);
+        const size_type d = hi-lo;
+        if (d<8) return find_node_binary(k,ok,lo,hi);
+        //cout << ilo << " " << ok << " " << ihi << endl;
+        assert(ilo<=ok);
+        assert(ihi>=ok);
+        const size_type l = log2(d);
+        const size_type id = (ihi-ilo)>>l;
+        const size_type od =  (ok-ilo)>>l;
+        //cout << d << " " << id << endl;
+        if (id==0) return find_node_binary(k,ok,lo,hi);
+        const size_type mi = lo+(od*d+id/2)/id;
+        hash_type imi;
+        if (is_set(mi)){
+          if (data[mi].first==k) return mi;
+          imi = order(data[mi].first);
+        } else {
+          imi = mi*inversed;
+        }
+        assert(mi<=hi);
+        assert(mi>=lo);
+        assert(imi<=ihi);
+        assert(imi>=ilo);
+        if constexpr (is_injective<hash>::value){
+          if (imi<ok){
+            if (mi<hi) return find_node_interpol(k,ok,mi+1,index(mi+1),hi,ihi);
+            else return ~size_type(0);
+          } else {
+            if (mi>lo) return find_node_interpol(k,ok,lo,ilo,mi-1,index(mi-1));
+            else return ~size_type(0);
+          }
+        } else {
+          if (imi<ok){
+            if (mi<hi) return find_node_interpol(k,ok,mi+1,index(mi+1),hi,ihi);
+            else return ~size_type(0);
+          } else if (imi>ok) {
+            if (mi>lo) return find_node_interpol(k,ok,lo,ilo,mi-1,index(mi-1));
+            else return ~size_type(0);
+          } else if (index_key_is_less(mi,k)) {
+            if (mi<hi) return find_node_interpol(k,ok,mi+1,index(mi+1),hi,ihi);
+            else return ~size_type(0);
+          } else {
+            if (mi>lo) return find_node_interpol(k,ok,lo,ilo,mi-1,index(mi-1));
+            else return ~size_type(0);
+          }
         }
       }
       size_type inline find_node_interpol(
@@ -338,76 +438,60 @@ namespace wmath{
           const size_type& lo,
           const size_type& hi
           ) const {
-        //cout << "find_node_interpol" << endl;
-        //if (lo>hi) return ~size_type(0);
-        assert(lo<=hi||datasize==0);
-        if (hi-lo<17) return find_node_binary(k,lo,hi);
-        const size_type l = log2(hi-lo);
-        const hash_type ihi       = index(hi);
-        const hash_type ilo       = index(lo);
-        //cout << ilo << " " << ok << " " << ihi << endl;
-        if (ilo>ok) return ~size_type(0);
-        if (ihi<ok) return ~size_type(0);
-        assert(ilo<=ok);
-        assert(ihi>=ok);
-        if (((ihi-ilo)>>l)==0) return find_node_binary(k,lo,hi);
-        size_type mi = lo+(size_type((ok-ilo)>>l)*(hi-lo))
-                          /size_type((ihi-ilo)>>l);
-        if (mi==lo) ++mi;
-        else if (mi==hi) --mi;
-        const hash_type imi = index(mi);
-        assert(mi<=hi);
-        assert(mi>=lo);
-        assert(imi<=ihi);
-        assert(imi>=ilo);
-        if (index_key_is_less(mi,k)) return find_node_interpol(k,ok,mi,hi);
-        else                         return find_node_interpol(k,ok,lo,mi);
+        //if (hi-lo<9) return find_node_binary(k,ok,lo,hi);
+        return find_node_interpol(k,ok,lo,index(lo),hi,index(hi));
       }
       size_type inline find_node(
           const key_type& k,
           const hash_type& ok,
           const size_type& hint)
         const {
+        assert((hint<datasize)||(datasize==0));
+        //assert((hint+1)*inversed>ok||hint==datasize-1);
+        //assert((hint-1)*inversed<=ok||hint==0);
+        if (datasize==0) return ~size_type(0);
         //cout << "find_node " << k << " " << hint << endl;
-        size_type i = hint;
-        if (i>=datasize) return ~size_type(0);
-        size_type oi;
-        if (!is_set(i)){
-          return ~size_type(0);
+        if (is_set(hint)){
+          if (data[hint].first==k) return hint;
         } else {
-          if (data[i].first==k) return i;
-          oi = order(data[i].first);
+          return ~size_type(0);
         }
-        size_type lo=0;
-        size_type hi=datasize-1;
-        assert((i+1)*inversed>ok||i==datasize-1);
-        assert((i-1)*inversed<=ok||i==0);
-        //return find_node_interpol(k,lo,hi);
-        //size_type d = hint;
-        for (size_type j=0;j!=digits<size_type>();++j){
+        size_type i = hint;
+        size_type lo = 0;
+        size_type hi = datasize-1;
+        size_type oi = order(data[hint].first);
+        const size_type mok = map(ok);
+        //find_node_interpol(k,ok,lo,hi);
+        for (size_type j=0;j!=2+log2(log2(datasize)+1);++j){
           size_type d = map(oi);
-          d = d>hint?d-hint:hint-d;
-          d+=1;
-          if (oi<ok){
-            lo = (i<hi)?i+1:i;
-            if (i+d>hi) i=hi;//return find_node_interpol(k,ok,lo,hi);
-            else i+=d;
-          } else if (oi>ok) {
-            hi = (i>lo)?i-1:i;
-            if (i<lo+d) i=lo;//return find_node_interpol(k,ok,lo,hi);
-            else i-=d; 
-          } else if constexpr (!is_injective<hash>::value){
-            if (index_key_is_less(i,k)){
-              lo = (i<hi)?i+1:i;
-              if (i<hi) ++i;
-              else return ~size_type(0);
-            }else{
-              hi = (i>lo)?i-1:i;
-              if (i>lo) --j;
-              else return ~size_type(0);
+          d = d>mok?d-mok:mok-d;
+          if constexpr (is_injective<hash>::value){
+            if (oi<ok){
+              if (i==hi) return ~size_type(0);
+              lo = ++i;
+              i  = (i+d>hi)?hi:i+d;
+            } else {
+              if (i==lo) return ~size_type(0);
+              hi = --i;
+              i  = (i<lo+d)?lo:i-d;
             }
-          } else {
             assert(oi!=ok);
+          } else {
+            if (oi<ok){
+              if (i==hi) return ~size_type(0);
+              lo = ++i;
+              i  = (i+d>hi)?hi:i+d;
+            } else if (oi>ok) {
+              if (i==lo) return ~size_type(0);
+              hi = --i;
+              i  = (i<lo+d)?lo:i-d;
+            } else if (index_key_is_less(i,k)){
+              if (i==hi) return ~size_type(0);
+              lo = ++i;
+            } else {
+              if (i==lo) return ~size_type(0);
+              hi = --i;
+            }
           }
           if (is_set(i)){
             if (data[i].first==k) return i;
@@ -415,7 +499,13 @@ namespace wmath{
           } else {
             oi = i*inversed;
           }
+          /*if ((lo>0)&&(hi<datasize-1)) {
+            if (!is_set(lo)) lo = lo<hi?lo+1:lo;
+            if (!is_set(hi)) hi = hi>lo?hi-1:lo;
+          }*/
           if (hi==lo) return ~size_type(0);
+          //if (hi-lo<8) break;
+          //if (hi-lo<10) return find_node_binary(k,ok,lo,hi);
         }
         return find_node_interpol(k,ok,lo,hi);
       }
@@ -448,7 +538,7 @@ namespace wmath{
       {
         num_data = 0;
         nextsize = (datasize/digits<size_type>()*3+2)/2*digits<size_type>();
-        inversed = inverse(datasize-1);
+        inversed = (~size_type(0))/(datasize-1);
         data     = allocator_traits<alloc>::allocate(allocator,datasize);
         masksize = (datasize+digits<size_type>()-1)/digits<size_type>();
         mask = new size_type[masksize]();
@@ -605,8 +695,8 @@ namespace wmath{
         if (nextsize==datasize) nextsize+=datasize;
         num_data = 0;
         //const size_type oldinversed = inversed;
-        inversed = inverse(datasize-1);
-        //size_type j = 0;
+        inversed = (~size_type(0))/(datasize-1);
+        size_type j = 0;
         const size_type c = (datasize+olddatasize/2)/olddatasize;
         for (size_type i=0;i!=olddatasize;++i){
           const size_type k = i/digits<size_type>();
@@ -659,10 +749,10 @@ namespace wmath{
       //if (num_data*9>=7*datasize) resize(nextsize);   // 0.7777777777777778
       //if (num_data*5>=4*datasize) resize(nextsize);   // 0.8
       //if (num_data*6>=5*datasize) resize(nextsize);   // 0.8333333333333334
-      //if ((num_data+2)*8>=datasize*7) resize(nextsize); // 0.875
+        if ((num_data+2)*8>=datasize*7) resize(nextsize); // 0.875
       //if ((num_data+2)*16>=datasize*15) resize(nextsize); // 0.9375
       //if ((num_data+2)*32>=datasize*31) resize(nextsize); // 0.96875
-        if ((num_data+2)*64>=datasize*63) resize(nextsize); // 0.984375
+      //if ((num_data+2)*64>=datasize*63) resize(nextsize); // 0.984375
       }
       mapped_type& operator[](const key_type& k){
         const size_type i = find_node(k);
