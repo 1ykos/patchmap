@@ -39,31 +39,32 @@ int main(){
     cout << "::" << int(i) << " " << int(n) << endl;
   }
   return 0;*/
-  ordered_patch_map<size_t,size_t> test;
+  ordered_patch_map<uint64_t,uint64_t> test;
   //ordered_patch_map<size_t,size_t,wmath::insecure_hash_functor<size_t>> test(32);
   //std::unordered_map<size_t,size_t> test;
   std::uniform_int_distribution<size_t> distr;
-  //size_t * precompute = new size_t[67108864ul];
-  //size_t * precompute2= new size_t[67108864ul];
-  //for (size_t i=0;i!=67108864ull;++i) precompute[i]=distr(mr);
-  //std::shuffle(precompute2,precompute2+67108864ul,mr);
+  size_t * precompute0 = new size_t[67108864ul];
+  size_t * precompute1 = new size_t[67108864ul];
+  for (size_t i=0;i!=67108864ull;++i) precompute0[i]=precompute1[i]=distr(mr);
+  std::shuffle(precompute1,precompute1+67108864ul,mr);
   size_t * cache0 = new size_t[1024];
   size_t * cache1 = new size_t[1024];
-  for (size_t i=0;i!=67108864ul;i+=1024){
-    /*for (size_t j=0;j!=1024;++j){
-      cache1[j]=cache0[j]=i+j;
-    }*/
+  for (size_t i=0;i!=67108864ul;i+=256){
+    for (size_t j=0;j!=256;++j){
+      cache0[j]=precompute0[i+j];
+      cache1[j]=precompute1[i+j];
+    }
     auto start = std::chrono::high_resolution_clock::now();
-    for (size_t j=0;j!=1024;++j){
-      const size_t r = i*i*j; // cache[j] // reverse(i+j);// distr(mr);
+    for (size_t j=0;j!=256;++j){
+      const uint32_t r = cache0[j]; // reverse(i+j);// distr(mr);
       test[r]=r;
     }
     auto finish = std::chrono::high_resolution_clock::now();
     cout << i << " " << (finish-start).count() << " ";
     start = finish;
     size_t n = 0;
-    for (size_t j=0;j!=1024;++j){
-      const size_t r = i*i*j;//i+j+10000012;// cache1[j];
+    for (size_t j=0;j!=256;++j){
+      const uint32_t r = cache1[j];
       /*if (r%3==0){
         if (!test.erase(r)){
           cout << "map broken (element not found)" << endl;

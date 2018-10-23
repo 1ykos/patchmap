@@ -26,28 +26,23 @@ namespace wmath{
                                     // with odious integer is suitable
 
   uint8_t  const inline distribute(const uint8_t& a){
+    return clmul_circ(a,uint8_t(0b01000101u));
     return (a+111)*97;
-    return clmul_circ(uint8_t(0b11010010u+a),
-                      uint8_t(0b01000101u));
-  }
-  
+  } 
   uint16_t const inline distribute(const uint16_t& a){
+    return clmul_mod(a,uint16_t(0b01000101'10100101u));
     return (a+36690)*43581;
-    return clmul_circ(uint16_t(0b11010010'11100101u+a),
-                      uint16_t(0b01000101'10100101u));
   }
   uint32_t const inline distribute(const uint32_t& a){
-    return (a+3112967709ul)*3107070805ul;
-    return clmul_circ(uint32_t(3106964309ul+a),
-                      uint32_t(3107070805ul));
+    return rol(a*3107070805ul,11)*3061963241ul;
+    return clmul_mod(a,uint32_t(3107070805ul));
   }
   uint64_t const inline distribute(const uint64_t& a){
-    return (a+10777891123091237543ull)*16123805160827025777ull;
-    constexpr uint64_t c0 = 
-    0b11010010'11010010'11010010'11010010'11010010'11010010'11010010'11010010ull;
-    constexpr uint64_t c1 = 16123805160827025777ull;
-  //0b10011001'10011011'00101010'01000101'01111000'01000101'10010110'10101001ull;
-    return clmul_circ(a,c1);
+    return rol((a+16123805160827025777ull)*3619632413061963241ull,32)
+      *16123805160827025777ull;
+    return (a+3619632413061963241ull)*16123805160827025777ull;
+    return clmul_mod(a,uint64_t(16123805160827025777ull))
+          *16123805160827025777ull;
   }
 
   template<typename T>
@@ -55,14 +50,171 @@ namespace wmath{
     constexpr bool operator()(const T&,const T&) const {return false;}
   };
 
+  template<
+    class value_type,
+    size_t frag,
+    class alloc
+  >
+  struct fragmented_memory;
+  
+  template<
+    class value_type,
+    size_t frag,
+    class alloc
+  >
+  struct fragmented_memory{
+    typedef typename alloc::size_type size_type;
+    value_type* data[frag];
+    size_type   bnds[frag]{};
+    allocator_type allocator;
+    fragmented_memory(){
+      for (size_t i=0;i!=frag;++i){
+        data[i]=nullptr;
+        bnds[i]=0;
+      }
+    }
+    ~fragmented_memory(){
+      size_type j = 0;
+      for (size_t i=0;i!=frag;++i){
+        allocator_traits<alloc>::deallocate(allocator,data[],bnds[i]-j);
+        j = bnds[i];
+      }
+    }
+    fragmented_memory(const fragmented_memory& other){
+      memcpy(reinterpret_cast<void*>(bnds),
+             reinterpret_cast<void*>(other.bnds),
+             frag*sizeof(size_type));
+      size_t j = 0;
+      for (size_t i=0;i!=frag;++i){
+        data[i]=allocator_traits<alloc>::allocate(allocator,bnds[i]-j);
+        if constexpr (is_trivially_copyable<value_type>::value){
+          memcpy(reinterpret_cast<void*>(data[i]),
+                 reinterpret_cast<void*>(other.data[i]),
+                 (size[i]-j)*sizeof(value_type));
+        } else {
+          for (size_t k = 0; k!=size[i]-j; ++k) data[i][k] = other.data[i][k];
+        }
+        j = bnds[i];
+      }
+    }
+    fragmented_memory(fragmented_memory&& other) noexcept {
+      for (size_t i=0;i!=frag;++i){
+        data[i]=other.data[i];
+        other.data[i] = nullptr;
+        bnds[i]=other.bnds[i];
+        other.bnds[i] = 0;
+      }
+    }
+    fragmented_memory& operator=(const fragmented_memory& other)
+    {
+      return *this = fragmented_memory(other);
+    }
+    fragmented_memory& operator=(fragmented_memory&& other) noexcept
+    {
+      swap(data,other.data);
+      swap(size,other.bnds);
+      return *this;
+    }
+    value_type& operator[](const size_type& i){
+      const size_t j = lower_bound(bnds,bnds+frag,i);
+      return data[j][i-j];
+    }
+    const value_type& operator[](const size_type& i) const {
+      const size_t j = lower_bound(bnds,bnds+frag,i);
+      return data[j][i-j];
+    }
+    const size_type& size(){
+      return bnds[frag-1];
+    }
+  };
+  
+  template<
+    class value_type,
+    size_t frag
+  >
+  struct fragmented_memory_noalloc{
+    typedef typename alloc::size_type size_type;
+    value_type* data[frag];
+    size_type   bnds[frag]{};
+    fragmented_memory_noalloc(){
+      for (size_t i=0;i!=frag;++i){
+        data[i]=nullptr;
+        bnds[i]=0;
+      }
+    }
+    ~fragmented_memory_noalloc(){
+      size_type j = 0;
+      for (size_t i=0;i!=frag;++i){
+        delete[] data[i];
+        j = bnds[i];
+      }
+    }
+    fragmented_memory_noalloc(const fragmented_memory_noalloc& other){
+      memcpy(reinterpret_cast<void*>(size),
+             reinterpret_cast<void*>(other.bnds),
+             frag*sizeof(size_type));
+      size_t j = 0;
+      for (size_t i=0;i!=frag;++i){
+        data[i] = new value_type[bnds[i]-j];
+        if constexpr (is_trivially_copyable<value_type>::value){
+          memcpy(reinterpret_cast<void*>(data[i]),
+                 reinterpret_cast<void*>(other.data[i]),
+                 (size[i]-j)*sizeof(value_type));
+        } else {
+          for (size_t k = 0; k!=size[i]-j; ++k) data[i][k] = other.data[i][k];
+        }
+        j = bnds[i];
+      }
+    }
+    fragmented_memory_noalloc(fragmented_memory_noalloc&& other) noexcept {
+      for (size_t i=0;i!=frag;++i){
+        data[i]=other.data[i];
+        other.data[i] = nullptr;
+        bnds[i]=other.bnds[i];
+        other.size[i] = 0;
+      }
+    }
+    fragmented_memory_noalloc& operator=(const fragmented_memory_noalloc& other)
+    {
+      return *this = fragmented_memory_noalloc(other);
+    }
+    fragmented_memory_noalloc& operator=(
+        fragmented_memory_noalloc&& other) noexcept
+    {
+      swap(data,other.data);
+      swap(bnds,other.bnds);
+      return *this;
+    }
+    value_type& operator[](const size_type& i){
+      const size_t j = lower_bound(bnds,bnds+frag,i);
+      return data[j][i-j];
+    }
+    const value_type& operator[](const size_type& i) const {
+      const size_t j = lower_bound(bnds,bnds+frag,i);
+      return data[j][i-j];
+    }
+    const size_type& size(){
+      return bnds[frag-1];
+    }
+  };
+
   template<class key_type    = int,  // int is the default, why not
            class mapped_type = int,  // int is the default, why not
            class hash        = hash_functor<key_type>,
            class equal       = std::equal_to<key_type>,
-           class comp        = typename conditional<is_injective<hash>::value,
-                                                    dummy_comp<key_type>,
-                                                    std::less<key_type>>::type,
-           class alloc       = std::allocator<std::pair<key_type,mapped_type>>
+           class comp        =
+             typename conditional<
+               is_injective<hash>::value,
+               dummy_comp<key_type>,
+               std::less<key_type>
+             >::type,
+           class alloc       =
+             typename conditional<
+               is_same<mapped_type,bool>::value,
+               std::allocator<key_type>,
+               std::allocator<std::pair<key_type,mapped_type>>
+             >::type
+         //size_t frag       = 1    // memoria est omnis divisa in partes frag  
           >
   class ordered_patch_map{
     public:
@@ -75,13 +227,10 @@ namespace wmath{
       typedef typename std::result_of<hash(key_type)>::type hash_type;
     private:
       size_type num_data;
-      size_type datasize;
       size_type inversed;
       size_type nextsize;
-      size_type masksize;
-      pair<key_type,mapped_type> * data;
-      size_type * mask;
-      allocator_type allocator;
+      fragmented_memory        <value_type,frag,alloc> data;
+      fragmented_memory_noalloc<size_type ,frag,alloc> mask;
       comp comparator;
       equal equator;
       hash hasher;
@@ -90,37 +239,79 @@ namespace wmath{
         constexpr size_type s =
           (digits<hash_type>()>digits<size_type>())?
           (h>>(digits<hash_type>()-digits<size_type>())):0;
-        const auto l = long_mul(h,datasize);
+        const auto l = long_mul(h,data.size());
         return get<0>(l);
       }
       hash_type inline order(const key_type& k) const {
         return distribute(hasher(k));
       }
+      bool inline is_less(
+          const key_type& a,
+          const key_type& b,
+          const hash_type& oa,
+          const hash_type& ob
+          ) const {
+        if constexpr (is_injective<hash>::value){
+          assert(equator(a,b)==(oa==ob));
+          if (oa<ob) return true;
+          else       return false;
+        } else {
+          if (oa<ob) return true;
+          if (oa>ob) return false;
+          return comparator(a,b);
+        }
+      }
+      bool inline is_less(
+          const key_type& a,
+          const key_type& b,
+          const hash_type& oa
+          ) const {
+        return is_less(a,b,oa,order(b));
+      }
       bool inline is_less(const key_type& a,const key_type& b) const {
-        if constexpr (is_injective<hash>::value)
-          assert(equator(a,b)==(order(a)==order(b)));
-        if (order(a)<order(b)) return true;
-        if (order(a)>order(b)) return false;
-        if constexpr (is_injective<hash>::value) return false;
-        return comparator(a,b);
+        return is_less(a,b,order(a),order(b));
       }
-      bool inline is_more(const key_type& a,const key_type& b) const {
-        if constexpr (is_injective<hash>::value)
-          assert(equator(a,b)==(order(a)==order(b)));
-        if (order(a)>order(b)) return true;
-        if (order(a)<order(b)) return false;
-        if constexpr (is_injective<hash>::value) return false;
-        return !((comparator(a,b))||(equator(a,b)));
+      bool inline is_more(
+          const key_type& a,
+          const key_type& b,
+          const hash_type& oa,
+          const hash_type& ob
+          ) const {
+        if constexpr (is_injective<hash>::value){
+          assert(equator(a,b)==(oa==ob));
+          if (oa>ob) return true;
+          else       return false;
+        } else {
+          if (oa>ob) return true;
+          if (oa<ob) return false;
+          return !((comparator(a,b))||(equator(a,b)));
+        }
       }
-      bool inline is_set(const size_type& n) const {
+      bool inline is_more(
+          const key_type& a,
+          const key_type& b,
+          const hash_type& oa
+          ) const {
+        return is_more(a,b,oa,order(b));
+      }
+      bool inline is_more(
+          const key_type& a,
+          const key_type& b
+          ) const {
+        return is_more(a,b,order(a),order(b));
+      }
+      bool inline is_set(
+          const size_type& n,
+          const size_type * m) const {
         const size_type i = n/digits<size_type>();
         const size_type j = n%digits<size_type>();
-        //cout << datasize << " " << masksize << " " << i << " " << n << endl;
-        assert(i<masksize);
-        if (mask[i]&(size_type(1)<<(digits<size_type>()-j-1))) return true;
-        return false;
+        assert((i<mask.size())||(m!=mask));
+        return (m[i]&(size_type(1)<<(digits<size_type>()-j-1)));
       }
-      bool inline is_set_any(const size_type& lo,const size_type& hi) const {
+      bool inline is_set(const size_type& n) const { return is_set(n,mask); }
+      bool inline is_set_any(
+          const size_type& lo,
+          const size_type& hi) const {
         const size_type k0 = lo/digits<size_type>();
         const size_type l0 = lo%digits<size_type>();
         const size_type m0 = (~size_type(0))>>l0;
@@ -153,44 +344,103 @@ namespace wmath{
           unset(j);
         }
       }
+      key_type& key_at_i(
+          const size_type& i,
+          value_type * data){
+        if constexpr (is_same<mapped_type,bool>::value) return data[i];
+        else                                            return data[i].first; 
+      }
+      key_type& key_at_i(const size_type& i) {
+        return key_at_i(i,data);
+      }
+      const key_type& key_at_i(
+          const size_type& i,
+          const value_type * d) const {
+        if constexpr (is_same<mapped_type,bool>::value) return data[i];
+        else                                            return data[i].first;
+      }
+      const key_type& key_at_i(const size_type& i) const {
+        return key_at_i(i,data);
+      };
+      typename conditional<
+        is_same<value_type,bool>::value,
+        bool,
+        value_type&
+      >::type
+      value_at_i(
+          const size_type& i,
+          value_type * data,
+          size_type  * mask
+          ) {
+        if constexpr (is_same<mapped_type,bool>::value) return is_set(i,mask);
+        else                                            return data[i].second;
+      }
+      typename conditional<
+        is_same<value_type,bool>::value,
+        bool,
+        value_type&
+      >::type
+      value_at_i(const size_type& i) {
+        return value_at_i(i,data,mask);
+      }
+      typename conditional<
+        is_same<value_type,bool>::value,
+        bool,
+        const value_type&
+      >::type
+      value_at_i(
+          const size_type& i,
+          const value_type * data,
+          const size_type  * mask) const {
+        if constexpr (is_same<mapped_type,bool>::value) return is_set(i,mask);
+        else                                            return data[i].second;
+      }
+      typename conditional<
+        is_same<value_type,bool>::value,
+        bool,
+        const value_type&
+      >::type
+      value_at_i(const size_type& i) const {
+        return value_at_i(i,data,mask);
+      }
+
       hash_type inline index(const size_type& i) const {
-        assert(i<datasize);
-        if (is_set(i)) return order(data[i].first);
-        return i*inversed;
+        assert(i<data.size());
+        if (is_set(i)) return order(key_at_i(i));
+        else           return i*inversed;
       }
       bool inline index_index_is_less(const size_type& i,const size_type& j)
         const {
-        assert(i<datasize);
-        assert(j<datasize);
-        if (is_set(i)&&is_set(j)) return is_less(data[i].first,data[j].first);
-        if (is_set(i)) return order(data[i].first)<hash_type(j*inversed);
-        if (is_set(j)) return hash_type(i*inversed)<order(data[j].first);
+        assert(i<data.size());
+        assert(j<data.size());
+        if (is_set(i)&&is_set(j)) return is_less(key_at_i(i),key_at_i(j));
+        if (is_set(i)) return order(key_at_i(i))<hash_type(j*inversed);
+        if (is_set(j)) return hash_type(i*inversed)<order(key_at_i(i));
         return i<j;
       }
       bool inline index_key_is_less(const size_type& i,const key_type& k) const{
-        if (is_set(i)) return is_less(data[i].first,k);
-        //cout << i*inversed << " " << order(k) << endl;
+        if (is_set(i)) return is_less(key_at_i(i),k);
         return hash_type(i*inversed)<order(k);
       }
       bool inline index_key_is_more(const size_type& i,const key_type& k) const{
-        if (is_set(i)) return is_more(data[i].first,k);
+        if (is_set(i)) return is_more(key_at_i(i),k);
         return hash_type(i*inversed)>order(k);
       }
       size_type inline find_first() const {
         size_type i=0;
-        if (i>=datasize) return ~size_type(0);
+        if (i>=data.size()) return ~size_type(0);
         while(true){
           const size_type k = i/digits<size_type>();
           const size_type l = i%digits<size_type>();
           const size_type m = (~size_type(0))>>l; 
-          assert(k<masksize);
+          assert(k<mask.size());
           size_type p = (mask[k]&m)<<l;
-          if (k+1<masksize)
+          if (k+1<mask.size())
             p|=shr(mask[k+1]&(~m),digits<size_type>()-l);
           const size_type s = clz(p);
           if (s==0) return i;
           i+=s;
-          if (i>=datasize) return ~size_type(0);
+          if (i>=data.size()) return ~size_type(0);
         }
       }
       // search for free bucket in decreasing order
@@ -199,7 +449,7 @@ namespace wmath{
           const size_type k = i/digits<size_type>();
           const size_type l = i%digits<size_type>();
           const size_type m = (~size_type(0))<<(digits<size_type>()-l-1);
-          assert(k<masksize);
+          assert(k<mask.size());
                 size_type p = ((~(mask[k]&m))>>(digits<size_type>()-l-1));
           if (k!=0) p|=shl(~(mask[k-1]&(~m)),l+1);
           const size_type s = ctz(p);
@@ -208,7 +458,7 @@ namespace wmath{
             return i;
           }
           i-=s;
-          if (i>datasize) return ~size_type(0);
+          if (i>data.size()) return ~size_type(0);
         }
       }
       // search for free bucket in increasing order
@@ -217,219 +467,311 @@ namespace wmath{
           const size_type k = i/digits<size_type>();
           const size_type l = i%digits<size_type>();
           const size_type m = (~size_type(0))>>l; 
-          assert(k<masksize);
+          assert(k<mask.size());
                 size_type p = (~(mask[k]&m))<<l;
-          if (k+1<masksize) p|=shr(~(mask[k+1]&(~m)),digits<size_type>()-l);
+          if (k+1<mask.size()) p|=shr(~(mask[k+1]&(~m)),digits<size_type>()-l);
           const size_type s = clz(p);
           if (s==0){
             assert(!is_set(i));
             return i;
           }
           i+=s;
-          if (i>=datasize) return ~size_type(0);
+          if (i>=data.size()) return ~size_type(0);
         }
       }
-      size_type const inline insert_node(
+      size_type const inline reserve_node(
           const key_type& key,
           const size_type& hint,
           const hash_type& ok
           ){
-        assert(hint<datasize);
-        size_type i = hint;
+        assert(hint<data.size());
+        size_type i;
+        assert((i+1)*inversed>ok||i==data.size()-1);
+        assert((i-1)*inversed<=ok||i==0);
         if (ok < index(i)) {
-          const size_type  j = search_free_dec(i);
-          if (j>=datasize) i = search_free_inc(i);
-          else i = j;
+          i = search_free_dec(hint);
+          if (i==(~size_type(0))) i = search_free_inc(hint);
         }else{
-          const size_type  j = search_free_inc(i);
-          if (j>=datasize) i = search_free_dec(i);
-          else i = j;
+          i = search_free_inc(hint);
+          if (i==(~size_type(0))) i = search_free_dec(hint);
         }
-        assert(i<datasize);
+        assert(i<data.size());
         assert(!is_set(i));
-        //cout << i << " " << key << endl;
-        allocator_traits<alloc>::construct(allocator,data+i,key,mapped_type());
-        //data[i].first=key;
         set(i);
         ++num_data;
-        //cout << "insert_node at " << i << endl;
-        //const size_type j = i;
         while(true){
           if (i==0) break;
-          //cout << i-1 << " " << i << endl;
-          //cout << index(i-1) << " " << index(i) << endl;
           if (!is_set(i-1)) break;
-          if (is_less(data[i].first,data[i-1].first))
-            swap(data[i],data[i-1]);
+          if (is_less(key,key_at_i(i-1),ok)) swap(data[i],data[i-1]);
           else break;
           --i;
         }
         while(true){
-          if (i+1>=datasize) break;
-          //cout << i << " " << i+1 << endl;
-          //cout << index(i) << " " << index(i+1) << endl;
+          if (i+1>=data.size()) break;
           if (!is_set(i+1)) break;
-          if (is_more(data[i].first,data[i+1].first))
-            swap(data[i],data[i+1]);
+          if (is_more(key,key_at_i(i+1),ok)) swap(data[i],data[i+1]);
           else break;
           ++i;
         }
-        //cout << int(i)-int(j) << " " << int(j)-int(hint) << endl;
-        //assert(check_ordering());
         return i;
       }
-      size_type inline insert_node(
+      size_type inline reserve_node(
           const key_type& key,
           const size_type& hint){
         const hash_type ok = order(key);
         size_t i = hint;
-        // TODO use hint better 
-        if (i!=0) if (index(i-1)<ok) if (i+1<datasize) if (index(i+1)>ok)
-          return insert_node(key,i,ok);
-        while(i+1<datasize){
-          if ((i+1)*inversed<ok) ++i;
-          else break;
-        }
-        while(i!=0){
-          if ((i-1)*inversed>ok) --i;
-          else break;
-        }
         return insert_node(key,i,ok);
       }
-      // TODO move version insert_node(K&& key)
-      size_type inline insert_node(const key_type& key){
+      size_type inline reserve_node(
+          const key_type& key){
         const hash_type ok = order(key);
         const size_type hint = map(ok);
-        assert(hint<datasize);
-        return insert_node(key,hint,ok);
+        assert(hint<data.size());
+        return reserve_node(key,hint,ok);
       }
-      size_type inline find_node_linear(
-          const key_type& key,
-          const size_type& lo, // inclusive bounds
-          const size_type& hi  // inclusive bounds
-          ) const {
-        //cout << "find_node_linear " << lo << " " << hi << endl;
-        assert(lo<=hi);
-        assert(lo<datasize);
-        assert(hi<datasize);
-        size_type i = lo;
-        while(true){
-          //cout << i << endl;
-          const size_type k = i/digits<size_type>();
-          const size_type l = i%digits<size_type>();
-          const size_type m = (~size_type(0))>>l; 
-          assert(k<masksize);
-          size_type p = (mask[k]&m)<<l;
-          if (k+1<masksize) p|=shr(mask[k+1]&(~m),digits<size_type>()-l);
-          const size_type s = clz(p);
-          if (s==0){ // is_set(i)
-            if (data[i].first==key) return i;
-            if (++i>hi) return ~size_type(0);
-            continue;
-          }
-          if ((i+=s)>hi) return ~size_type(0);
+      size_type inline insert_node(
+          const value_type& value,
+          const size_type& hint
+          ){
+        size_type i;
+        if constexpr (is_same<mapped_type,bool>::value) {
+          const size_type i = reserve_node(value,hint);
+        } else {
+          const size_type i = reserve_node(value.first,hint);
         }
-        return datasize;
+        data[i]=value;
+        return i;
+      }
+      size_type inline insert_node(
+          const value_type& value
+          ){
+        size_type i;
+        if constexpr (is_same<mapped_type,bool>::value)
+          i = reserve_node(value);
+        else
+          i = reserve_node(value.first);
+        data[i]=value;
+        return i;
+      }
+      size_type inline insert_node(
+          value_type&& value,
+          const size_type& hint
+          ){
+        size_type i;
+        if constexpr (is_same<mapped_type,bool>::value)
+          i = reserve_node(value,hint);
+        else
+          i = reserve_node(value.first,hint);
+        swap(data[i],value);
+        return i;
+      }
+      size_type inline insert_node(
+          value_type&& value
+          ){
+        size_type i;
+        if constexpr (is_same<mapped_type,bool>::value)
+          i = reserve_node(value);
+        else
+          i = reserve_node(value.first);
+        swap(data[i],value);
+        return i;
       }
       size_type inline find_node_binary(
           const key_type& key,
+          const hash_type& ok,
           const size_type& lo, // inclusive bounds
           const size_type& hi  // inclusive bounds
           ) const {
         //cout << "find_node_binary(" << lo << ", " << hi << ")"<< endl;  
         //if (lo>hi) return ~size_type(0);
-        assert(lo<datasize);
-        assert(hi<datasize);
+        assert(lo<data.size());
+        assert(hi<data.size());
         assert(lo<=hi);
-        if (!is_set_any(lo,hi)) return ~size_type(0); 
-        //if (hi-lo<digits<size_t>()) return find_node_linear(key,lo,hi);
-        //if (index_key_is_less(hi,key)) return ~size_type(0);
-        //if (index_key_is_more(lo,key)) return ~size_type(0);
+        //if (!is_set_any(lo,hi)) return ~size_type(0); 
         const size_type  mi = (hi+lo)/2;
-        if (is_set(mi)) if (data[mi].first==key) return mi;
-        if (hi==lo) return ~size_type(0);
-        if (index_key_is_less(mi,key))
-          return find_node_binary(key,mi<hi?mi+1:mi,hi);
-        else
-          return find_node_binary(key,lo,mi>lo?mi-1:mi);
+        hash_type omi;
+        if (is_set(mi)){
+          if (key_at_i(mi)==key) return mi;
+          omi = order(mi);
+        } else {
+          omi = mi*inversed;
+        }
+        //if (hi==lo) return ~size_type(0);
+        if constexpr (is_injective<hash>::value) {
+          if (omi<ok){
+            if (mi<hi) return find_node_binary(key,ok,mi+1,hi);
+            else return ~size_type(0);
+          } else {
+            if (mi>lo) return find_node_binary(key,ok,lo,mi-1);
+            else return ~size_type(0);
+          }
+        } else {
+          if (omi<ok){
+            if (mi<hi) return find_node_binary(key,ok,mi+1,hi);
+            else return ~size_type(0);
+          } else if (omi>ok) {
+            if (mi>lo) return find_node_binary(key,ok,lo,mi-1);
+            else return ~size_type(0);
+          } else if (index_key_is_less(mi,key)) {
+            if (mi<hi) return find_node_binary(key,ok,mi+1,hi);
+            else return ~size_type(0);
+          } else {
+            if (mi>lo) return find_node_binary(key,ok,lo,mi-1);
+            else return ~size_type(0);
+          }
+        }
       }
       size_type inline find_node_interpol(
-          const key_type& k,
+          const  key_type& k,
+          const hash_type& ok,
           const size_type& lo,
-          const size_type& hi
+          const hash_type& ilo,
+          const size_type& hi,
+          const hash_type& ihi
           ) const {
-        //cout << "find_node_interpol" << endl;
+        //cout << "find_node_interpol "<< lo << " " << hi << endl;
         //if (lo>hi) return ~size_type(0);
-        assert(lo<=hi||datasize==0);
-        const hash_type ok = order(k);
-        if (hi-lo<17) return find_node_binary(k,lo,hi);
-        const size_type l = log2(hi-lo);
-        const hash_type ihi       = index(hi);
-        const hash_type ilo       = index(lo);
-        //cout << ilo << " " << ok << " " << ihi << endl;
+        assert(lo<=hi||data.size()==0);
         if (ilo>ok) return ~size_type(0);
         if (ihi<ok) return ~size_type(0);
+        const size_type d = hi-lo;
+        if (d<8) return find_node_binary(k,ok,lo,hi);
+        //cout << ilo << " " << ok << " " << ihi << endl;
         assert(ilo<=ok);
         assert(ihi>=ok);
-        if (((ihi-ilo)>>l)==0) return find_node_binary(k,lo,hi);
-        size_type mi = lo+(size_type((ok-ilo)>>l)*(hi-lo))
-                          /size_type((ihi-ilo)>>l);
-        if (mi==lo) ++mi;
-        else if (mi==hi) --mi;
-        const hash_type imi = index(mi);
+        const size_type l = log2(d);
+        const size_type id = (ihi-ilo)>>l;
+        const size_type od =  (ok-ilo)>>l;
+        //cout << d << " " << id << endl;
+        if (id==0) return find_node_binary(k,ok,lo,hi);
+        const size_type mi = lo+(od*d+id/2)/id;
+        hash_type imi;
+        if (is_set(mi)){
+          if (key_at_i(mi)==k) return mi;
+          imi = order(key_at_i(mi));
+        } else {
+          imi = mi*inversed;
+        }
         assert(mi<=hi);
         assert(mi>=lo);
         assert(imi<=ihi);
         assert(imi>=ilo);
-        if (index_key_is_less(mi,k)) return find_node_interpol(k,mi,hi);
-        else                         return find_node_interpol(k,lo,mi);
-      }
-      size_type inline find_node(const key_type& k,const size_type& hint)
-        const {
-        //cout << "find_node " << k << endl;
-        size_type i = hint;
-        if (i>=datasize) return ~size_type(0);
-        size_type lo=0;
-        size_type hi=datasize-1;
-        for (size_type j=1;j!=16;++j){
-          //cout << j << " " << lo << " " << i << " " << hi << endl;
-          if (is_set(i)) if (data[i].first==k) return i;
-          if (hi==lo) return ~size_type(0);
-          if (index_key_is_less(i,k)){
-            lo = (i<hi)?i+1:i;
-            if (hi-lo<17) find_node_binary(k,lo,hi);
-            size_type d = j*j; // map(order(k)-index(i))+1;
-            //cout << d << " " << index(k)-order(i) << " " << datasize << endl;
-            //cout << get<0>(long_mul(order(i)-index(k),datasize)) << " "
-            //     << get<1>(long_mul(order(i)-index(k),datasize)) << endl;
-            if (i+d>hi) return find_node_interpol(k,lo,hi);
-            else i+=d;
-            //cout << "i+= " << d << endl;
+        if constexpr (is_injective<hash>::value){
+          if (imi<ok){
+            if (mi<hi) return find_node_interpol(k,ok,mi+1,index(mi+1),hi,ihi);
+            else return ~size_type(0);
           } else {
-            hi = (i>lo)?i-1:i;
-            if (hi-lo<17) find_node_binary(k,lo,hi);
-            size_type d = j*j; // map(index(i)-order(k))+1;
-            //cout << d << " " << index(i)-order(k) << " " << datasize << endl;
-            //cout << get<0>(long_mul(order(i)-index(k),datasize)) << " "
-            //     << get<1>(long_mul(order(i)-index(k),datasize)) << endl;
-            if (i<lo+d) return find_node_interpol(k,lo,hi);
-            else i-=d;
-            //cout << "i-= " << d << endl;
+            if (mi>lo) return find_node_interpol(k,ok,lo,ilo,mi-1,index(mi-1));
+            else return ~size_type(0);
+          }
+        } else {
+          if (imi<ok){
+            if (mi<hi) return find_node_interpol(k,ok,mi+1,index(mi+1),hi,ihi);
+            else return ~size_type(0);
+          } else if (imi>ok) {
+            if (mi>lo) return find_node_interpol(k,ok,lo,ilo,mi-1,index(mi-1));
+            else return ~size_type(0);
+          } else if (index_key_is_less(mi,k)) {
+            if (mi<hi) return find_node_interpol(k,ok,mi+1,index(mi+1),hi,ihi);
+            else return ~size_type(0);
+          } else {
+            if (mi>lo) return find_node_interpol(k,ok,lo,ilo,mi-1,index(mi-1));
+            else return ~size_type(0);
           }
         }
-        return find_node_interpol(k,lo,hi);
+      }
+      size_type inline find_node_interpol(
+          const key_type& k,
+          const hash_type& ok,
+          const size_type& lo,
+          const size_type& hi
+          ) const {
+        //if (hi-lo<9) return find_node_binary(k,ok,lo,hi);
+        return find_node_interpol(k,ok,lo,index(lo),hi,index(hi));
+      }
+      size_type inline find_node(
+          const key_type& k,
+          const hash_type& ok,
+          const size_type& hint)
+        const {
+        assert((hint<data.size())||(data.size()==0));
+        //assert((hint+1)*inversed>ok||hint==data.size()-1);
+        //assert((hint-1)*inversed<=ok||hint==0);
+        if (data.size()==0) return ~size_type(0);
+        //cout << "find_node " << k << " " << hint << endl;
+        if (is_set(hint)){
+          if (key_at_i(hint)==k) return hint;
+        } else {
+          return ~size_type(0);
+        }
+        size_type i = hint;
+        size_type lo = 0;
+        size_type hi = data.size()-1;
+        size_type oi = order(key_at_i(hint));
+        const size_type mok = map(ok);
+        //find_node_interpol(k,ok,lo,hi);
+        for (size_type j=0;j!=2+log2(log2(data.size())+1);++j){
+          size_type d = map(oi);
+          d = d>mok?d-mok:mok-d;
+          if constexpr (is_injective<hash>::value){
+            if (oi<ok){
+              if (i==hi) return ~size_type(0);
+              lo = ++i;
+              i  = (i+d>hi)?hi:i+d;
+            } else {
+              if (i==lo) return ~size_type(0);
+              hi = --i;
+              i  = (i<lo+d)?lo:i-d;
+            }
+            assert(oi!=ok);
+          } else {
+            if (oi<ok){
+              if (i==hi) return ~size_type(0);
+              lo = ++i;
+              i  = (i+d>hi)?hi:i+d;
+            } else if (oi>ok) {
+              if (i==lo) return ~size_type(0);
+              hi = --i;
+              i  = (i<lo+d)?lo:i-d;
+            } else if (index_key_is_less(i,k)){
+              if (i==hi) return ~size_type(0);
+              lo = ++i;
+            } else {
+              if (i==lo) return ~size_type(0);
+              hi = --i;
+            }
+          }
+          if (is_set(i)){
+            if (key_at_i(i)==k) return i;
+            oi = order(key_at_i(i));
+          } else {
+            oi = i*inversed;
+          }
+          /*if ((lo>0)&&(hi<data.size()-1)) {
+            if (!is_set(lo)) lo = lo<hi?lo+1:lo;
+            if (!is_set(hi)) hi = hi>lo?hi-1:lo;
+          }*/
+          if (hi==lo) return ~size_type(0);
+          //if (hi-lo<8) break;
+          //if (hi-lo<10) return find_node_binary(k,ok,lo,hi);
+        }
+        return find_node_interpol(k,ok,lo,hi);
       }
       size_type const inline find_node(const key_type& k)
-      const { return find_node(k,map(order(k))); }
+      const {
+        const hash_type ok = order(k);
+        const size_type hint = map(ok);
+        return find_node(k,ok,hint);
+      }
       template<typename map_type>
       typename conditional<is_const<map_type>::value,
                            const mapped_type&,
                            mapped_type&>::type
       static inline const_noconst_at(map_type& hashmap,const key_type& k) {
         size_type i = hashmap.find_node(k);
-        if (i<hashmap.datasize){
+        if (i<hashmap.data.size()){
           assert(hashmap.is_set(i));
-          return hashmap.data[i].first;
+          return hashmap.key_at_i(i);
         } else throw std::out_of_range(
             std::string(typeid(hashmap).name())
             +".const_noconst_at("+typeid(k).name()+" k)"
@@ -439,19 +781,19 @@ namespace wmath{
       }
     public:
       // constructor
-      ordered_patch_map(const size_type& datasize = digits<size_type>())
-        :datasize(datasize)
+      ordered_patch_map(const size_type& data.size() = 0)
+        :data.size()(data.size())
       {
         num_data = 0;
-        nextsize = (datasize/digits<size_type>()*3+2)/2*digits<size_type>();
-        inversed = inverse(datasize);
-        data     = allocator_traits<alloc>::allocate(allocator,datasize);
-        masksize = (datasize+digits<size_type>()-1)/digits<size_type>();
-        mask = new size_type[masksize]();
+        nextsize = (data.size()/digits<size_type>()*3+2)/2*digits<size_type>();
+        inversed = (~size_type(0))/(data.size()-1);
+        data     = allocator_traits<alloc>::allocate(allocator,data.size());
+        mask.size() = (data.size()+digits<size_type>()-1)/digits<size_type>();
+        mask = new size_type[mask.size()]();
       }
       ~ordered_patch_map(){                                  // destructor
         delete[] mask;
-        allocator_traits<alloc>::deallocate(allocator,data,datasize);
+        allocator_traits<alloc>::deallocate(allocator,data,data.size());
         //delete[] data;
       }
       ordered_patch_map(ordered_patch_map&& other) noexcept  // move constructor
@@ -460,10 +802,10 @@ namespace wmath{
         data = nullptr;
         swap(mask,other.mask);
         swap(data,other.data);
-        swap(datasize,other.datasize);
+        swap(data.size(),other.data.size());
         swap(inversed,other.inversed);
         swap(nextsize,other.nextsize);
-        swap(masksize,other.masksize);
+        swap(mask.size(),other.mask.size());
       }
       template<
         class key_type_other,
@@ -492,14 +834,14 @@ namespace wmath{
            alloc_other
          > other_type;
         delete[] mask;
-        allocator_traits<alloc>::deallocate(allocator,data,datasize);
+        allocator_traits<alloc>::deallocate(allocator,data,data.size());
         num_data = other.num_data;
-        datasize = other.datasize;
+        data.size() = other.data.size();
         inversed = other.inversed;
         nextsize = other.nextsize;
-        masksize = other.masksize;
-        mask = new size_type[masksize]();
-        data = allocator_traits<alloc>::allocate(allocator,datasize);
+        mask.size() = other.mask.size();
+        mask = new size_type[mask.size()]();
+        data = allocator_traits<alloc>::allocate(allocator,data.size());
         if constexpr (
             is_same<hash , hash_other>::value
           &&is_same<equal,equal_other>::value
@@ -507,34 +849,34 @@ namespace wmath{
           ){
           memcpy(reinterpret_cast<void*>(mask),
                  reinterpret_cast<void*>(other.mask),
-                 masksize*sizeof(size_t));
+                 mask.size()*sizeof(size_t));
           if constexpr (
               is_trivially_copyable<value_type>::value
             &&is_same<value_type,typename other_type::value_type>::value)
             memcpy(reinterpret_cast<void*>(data),
                    reinterpret_cast<void*>(other.data),
-                   datasize*sizeof(value_type));
-          else for (size_type i=0;i!=datasize;++i) data[i]=other.data[i];
+                   data.size()*sizeof(value_type));
+          else for (size_type i=0;i!=data.size();++i) data[i]=other.data[i];
         } else {
           for (auto it=other.begin();it!=other.end();++it) insert(*it);
         }
       }
       ordered_patch_map(const ordered_patch_map& other){
         num_data = other.num_data;
-        datasize = other.datasize;
+        data.size() = other.data.size();
         inversed = other.inversed;
         nextsize = other.nextsize;
-        masksize = other.masksize;
-        mask = new size_type[masksize]();
-        data = allocator_traits<alloc>::allocate(allocator,datasize);
+        mask.size() = other.mask.size();
+        mask = new size_type[mask.size()]();
+        data = allocator_traits<alloc>::allocate(allocator,data.size());
         memcpy(reinterpret_cast<void*>(mask),
                reinterpret_cast<void*>(other.mask),
-               masksize*sizeof(size_t));
+               mask.size()*sizeof(size_t));
           if constexpr (is_trivially_copyable<value_type>::value)
             memcpy(reinterpret_cast<void*>(data),
                    reinterpret_cast<void*>(other.data),
-                   datasize*sizeof(value_type));
-        else for (size_type i=0;i!=datasize;++i) data[i]=other.data[i];
+                   data.size()*sizeof(value_type));
+        else for (size_type i=0;i!=data.size();++i) data[i]=other.data[i];
       }
       inline ordered_patch_map& operator=                   // copy assignment
         (const ordered_patch_map& other)
@@ -546,127 +888,135 @@ namespace wmath{
         noexcept{
         swap(mask,other.mask);
         swap(data,other.data);
-        swap(datasize,other.datasize);
+        swap(data.size(),other.data.size());
         swap(inversed,other.inversed);
         swap(nextsize,other.nextsize);
-        swap(masksize,other.masksize);
+        swap(mask.size(),other.mask.size());
         return *this;
       }
       size_type erase(const key_type& k,const size_type& hint){
         size_type i = find_node(k,hint);
-        if (i==datasize) return 0;
+        if (i==data.size()) return 0;
         while(true){
-          if (i+1==datasize) break;
+          if (i+1==data.size()) break;
           if (!is_set(i+1)) break;
-          if (order(data[i+1].first)>=i*inversed) break;
+          if (order(key_at_i(i+1))>=i*inversed) break;
           swap(data[i],data[i+1]);
           ++i;
         }
         while(true){
           if (i==0) break;
           if (!is_set(i-1)) break;
-          if (order(data[i-1].first)<=i*inversed) break;
+          if (order(key_at_i(i-1))<=i*inversed) break;
           swap(data[i],data[i-1]);
           --i;
         }
         unset(i);
+        allocator_traits<alloc>::destroy(allocator,data+i);
         //cout << "unset position " << i << endl;
         --num_data;
         //cout << num_data << endl;
-        assert(num_data<datasize);
+        assert(num_data<data.size());
         return 1;
       }
       size_type erase(const key_type& k){
         return erase(k,map(order(k)));
       }
       void inline clear(){
-        for (size_type i=0;i!=masksize;++i) mask[i]=0;
+        for (size_type i=0;i!=mask.size();++i) mask[i]=0;
         num_data=0;
       }
-      void const resize(const size_type& n){
-        //cout << "resizing from " << datasize << " to " << n << endl;
+      void const resize(const size_type& newsize){
+        //cout << "resizing from " << data.size() << " to " << n << endl;
         //cout << "$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$" << endl;
-        if (n<num_data) return;
-        value_type * olddata = allocator_traits<alloc>::allocate(allocator,n);
+        if (newsize<num_data) return;
+        size_type n = newsize-data.size()+data.bnds[0];
+        value_type * dataexp = allocator_traits<alloc>::allocate(allocator,n);
         //value_type * olddata = new value_type[n];
-        masksize = (n+digits<size_type>()-1)/digits<size_type>();
-        size_type * oldmask = new size_type[masksize]();
-        swap(olddata,data);
-        swap(oldmask,mask);
-        const size_type olddatasize = datasize;
-        datasize = n;
-        if (datasize<257) nextsize=2*datasize;
-        else nextsize = datasize+olddatasize;
-        if (nextsize==datasize) nextsize+=datasize;
-        num_data = 0;
-        //const size_type oldinversed = inversed;
-        inversed = inverse(datasize);
-        //size_type j = 0;
-        const size_type c = (datasize+olddatasize/2)/olddatasize;
-        for (size_type i=0;i!=olddatasize;++i){
+        size_type masksize = (n+digits<size_type>()-1)/digits<size_type>();
+        size_type * maskexp = new size_type[mask.size()]();
+        if (data.size()<257) nextsize=2*data.size();
+        else nextsize = newsize+data.size();
+        if (nextsize==data.size()) nextsize+=data.size();
+        for (size_t i=frag-1;i!=~size_t(0);--i){
+          swap(dataexp,data.data[i]);
+          swap(maskexp,mask.data[i]);
+        }
+        for (size_t i=0;i<frag-1;++i){
+          swap(data.bnds[i],data.bnds[i+1]);
+          swap(mask.bnds[i],mask.bnds[i+1]);
+        }
+        data.bnds[frag-1] = newsize;
+        mask.bnds[frag-1] = newsize;
+        inversed = (~size_type(0))/(data.size()-1);
+        for (size_type i=0;i!=data.size();){
           const size_type k = i/digits<size_type>();
           const size_type l = i%digits<size_type>();
-          if (oldmask[k]&(size_type(1)<<(digits<size_type>()-l-1))){
-            //cout << j << " " ;
-            //j=insert_node(olddata[i].first);//,j+c<datasize?j+c:j);
-            //j=insert_node(olddata[i].first,j+c<datasize?j+c:j);
-            //cout << j << endl;
-            //const size_type hint = map(i*oldinversed);
-            //data[j].second=olddata[i].second;
-            data[insert_node(olddata[i].first)].second=olddata[i].second;
-            //operator[](olddata[i].first)=olddata[i].second;
-            //
+          const size_type m = (~size_type(0))>>l; 
+          size_type p = (mask[k]&m)<<l;
+          if (k+1<mask.size())
+            p|=shr(mask[k+1]&(~m),digits<size_type>()-l);
+          const size_type s = clz(p);
+          if (s==0){
+            value_type temp;
+            swap(data[i],temp);
+            unset(i);
+            insert_node(temp);
+            ++i;
+          }else{
+            i+=s;
           }
         }
         assert(check_ordering());
         assert(test_size()==num_data);
         //cout << "test" << endl;
-        allocator_traits<alloc>::deallocate(allocator,olddata,olddatasize);
+        allocator_traits<alloc>::deallocate(allocator,olddata,olddata.size());
         //delete[] olddata;
         delete[] oldmask;
       }
       size_type inline size() const { return num_data; }
       size_type const test_size() const {
         size_type test = 0;
-        for (size_type i=0;i!=datasize;++i) test += is_set(i);
+        for (size_type i=0;i!=data.size();++i) test += is_set(i);
         return test;
       }
       void test_chunks() const {
-        for (size_type i=0;i!=masksize;++i){
+        for (size_type i=0;i!=mask.size();++i){
           cout << popcount(mask[i]) << endl;
         }
       }
       bool check_ordering() const {
-        for (size_type i=0,j=1;j<datasize;(++i,++j)){
+        bool ordered = true;
+        for (size_type i=0,j=1;j<data.size();(++i,++j)){
           if (index_index_is_less(i,j)) continue;
           cout << is_set(i) << " " << is_set(j) << endl;
           cout << i << " " << j << endl;
           cout << index(i) << " " << index(j) << endl;
           cout << double(index(i))/pow(2.0,64.0) << " "
                << double(index(j))/pow(2.0,64.0) << endl;
-          return false;
+          ordered = false;
         }
-        return true;
+        return ordered;
       }
       void inline enshure_size(){
-        //while ((num_data+2)*4>=datasize*3) resize(nextsize); // 0.75
-      //if (num_data*9>=7*datasize) resize(nextsize);   // 0.7777777777777778
-        if (num_data*5>=4*datasize) resize(nextsize);   // 0.8
-      //if (num_data*6>=5*datasize) resize(nextsize);   // 0.8333333333333334
-        //while ((num_data+2)*8>=datasize*7) resize(nextsize); // 0.875
-        //while ((num_data+2)*16>=datasize*15) resize(nextsize); // 0.9375
-        //while ((num_data+2)*32>=datasize*31) resize(nextsize); // 0.96875
-        //while ((num_data+2)*64>=datasize*63) resize(nextsize); // 0.984375
+      //if ((num_data+2)*4>=data.size()*3) resize(nextsize); // 0.75
+      //if (num_data*9>=7*data.size()) resize(nextsize);   // 0.7777777777777778
+      //if (num_data*5>=4*data.size()) resize(nextsize);   // 0.8
+      //if (num_data*6>=5*data.size()) resize(nextsize);   // 0.8333333333333334
+        if ((num_data+2)*8>=data.size()*7) resize(nextsize); // 0.875
+      //if ((num_data+2)*16>=data.size()*15) resize(nextsize); // 0.9375
+      //if ((num_data+2)*32>=data.size()*31) resize(nextsize); // 0.96875
+      //if ((num_data+2)*64>=data.size()*63) resize(nextsize); // 0.984375
       }
       mapped_type& operator[](const key_type& k){
         const size_type i = find_node(k);
-        if (i<datasize) return data[i].second;
+        if (i<data.size()) return data[i].second;
         enshure_size();
         return data[insert_node(k)].second;
       }
       const mapped_type& operator[](const key_type& k) const {
         const size_type i = find_node(k);
-        assert(i<datasize);
+        assert(i<data.size());
         return data[i].second; // this is only valid if key exists!
       }
       mapped_type& at(const key_type& k){
@@ -676,18 +1026,18 @@ namespace wmath{
         return const_noconst_at(*this,k);
       }
       size_type const inline count(const key_type& k) const {
-        return (find_node(k)<datasize);
+        return (find_node(k)<data.size());
       }
       double average_offset(){
         double v = 0;
-        for (size_type i=0;i!=datasize;++i){
+        for (size_type i=0;i!=data.size();++i){
           if (is_set(i)){
             v+=double(map(data[i].first))-double(i);
             cout << map(order(data[i].first)) << " " << i << " "
-                 << datasize << endl;
+                 << data.size() << endl;
           }
         }
-        return v/size()/datasize;
+        return v/size()/data.size();
       }
       template<class key_type_other,
                class mapped_type_other,
@@ -705,7 +1055,7 @@ namespace wmath{
             comp_other,
             alloc_other>& other)
       const {
-        if (datasize!=other.datasize) return false;
+        if (data.size()!=other.data.size()) return false;
         if constexpr (
             is_same<hash , hash_other>::value
           &&is_same<equal,equal_other>::value
@@ -767,13 +1117,13 @@ namespace wmath{
         private:
           void inline update_hint(){
             if constexpr (!uphold_iterator_validity::value) return;
-            if (hint<map->datasize) if (map->data[hint].first==key) return;
+            if (hint<map->data.size()) if (map->data[hint].first==key) return;
             hint = map->find_node(key,hint);
-            if (hint>=map->datasize) hint = ~size_type(0);
+            if (hint>=map->data.size()) hint = ~size_type(0);
           }
           void inline unsafe_increment(){ // assuming hint is valid
             //cout << "unsafe_increment() " << hint << " " << key << endl;
-            if (++hint>=map->datasize){
+            if (++hint>=map->data.size()){
               //cout << "test1" << endl;
               //cout << "becoming an end()" << endl;
               hint=~size_type(0);
@@ -784,15 +1134,15 @@ namespace wmath{
               const size_type k = hint/digits<size_type>();
               const size_type l = hint%digits<size_type>();
               const size_type m = (~size_type(0))>>l; 
-              assert(k<map->masksize);
+              assert(k<map->mask.size());
               size_type p = (map->mask[k]&m)<<l;
-              if (k+1<map->masksize)
+              if (k+1<map->mask.size())
                 p|=shr(map->mask[k+1]&(~m),digits<size_type>()-l);
               const size_type s = clz(p);
               if (s==0) break;
               hint+=s;
               //cout << hint << " " << s << endl;
-              if (hint>=map->datasize){
+              if (hint>=map->data.size()){
                 //cout << "test3" << endl;
                 //cout << "becoming an end()" << endl;
                 hint=~size_type(0);
@@ -805,7 +1155,7 @@ namespace wmath{
             //cout << "new key=" << key << endl;
           }
           void inline unsafe_decrement(){ // assuming hint is valid
-            if (--hint>=map->datasize){
+            if (--hint>=map->data.size()){
               hint=~size_type(0);
               return;
             }
@@ -813,13 +1163,13 @@ namespace wmath{
               const size_type k = hint/digits<size_type>();
               const size_type l = hint%digits<size_type>();
               const size_type m = (~size_type(0))<<(digits<size_type>()-l-1);
-              assert(k<map->masksize);
+              assert(k<map->mask.size());
               size_type p = (map->mask[k]&m)>>(digits<size_type>()-l-1);
               if (k!=0) p|=shl(map->mask[k-1]&(~m),l+1);
               const size_type s = ctz(p);
               if (s==0) break;
               hint-=s;
-              if (hint>=map->datasize){
+              if (hint>=map->data.size()){
                 hint=~size_type(0);
                 return;
               }
@@ -951,8 +1301,8 @@ namespace wmath{
               const const_noconst_iterator<is_const_other>& o) const {
             //cout << "comparing " << hint << " " << key << " with "
             //     << o.hint << " " << key << endl;
-            if ((hint>=map->datasize)&&(o.hint>=o.map->datasize)) return true;
-            if ((hint>=map->datasize)||(o.hint>=o.map->datasize)) return false;
+            if ((hint>=map->data.size())&&(o.hint>=o.map->data.size())) return true;
+            if ((hint>=map->data.size())||(o.hint>=o.map->data.size())) return false;
             if (key!=o.key) return false;
             return true;
           }
@@ -964,8 +1314,8 @@ namespace wmath{
           template<bool is_const_other>
           bool operator< (
               const const_noconst_iterator<is_const_other>& o) const{
-            if ((o.hint<o.mpa->datasize)){
-              if (hint<map->datasize){
+            if ((o.hint<o.mpa->data.size())){
+              if (hint<map->data.size()){
                 return comp(key,o.key);
               }else{
                 return false;
@@ -977,8 +1327,8 @@ namespace wmath{
           template<bool is_const_other>
           bool operator> (
               const const_noconst_iterator<is_const_other>& o) const{
-            if ((o.hint<o.mpa->datasize)){
-              if (hint<map->datasize){
+            if ((o.hint<o.mpa->data.size())){
+              if (hint<map->data.size()){
                 return (!comp(key,o.key))&&(!equal(key,o.key));
               }else{
                 return true;
@@ -990,8 +1340,8 @@ namespace wmath{
           template<bool is_const_other>
           bool operator<=(
               const const_noconst_iterator<is_const_other>& o) const{
-            if ((o.hint<o.mpa->datasize)){
-              if (hint<map->datasize){
+            if ((o.hint<o.mpa->data.size())){
+              if (hint<map->data.size()){
                 return comp(key,o.key)||equal(key,o.key);
               }else{
                 return false;
@@ -1003,8 +1353,8 @@ namespace wmath{
           template<bool is_const_other>
           bool operator>=(
               const const_noconst_iterator<is_const_other>& o) const{
-            if ((o.hint<o.mpa->datasize)){
-              if (hint<map->datasize){
+            if ((o.hint<o.mpa->data.size())){
+              if (hint<map->data.size()){
                return !comp(key,o.key);
               }else{
                 return true;
@@ -1073,7 +1423,7 @@ namespace wmath{
           }
           reference operator*() const {
             size_type i;
-            if (hint>=map->datasize){
+            if (hint>=map->data.size()){
               i = map->find_node(key);
             } else if (map->data[hint]!=key){
               i = map->find_node(key,hint);
@@ -1084,7 +1434,7 @@ namespace wmath{
           }
           pointer operator->() const {
             size_type i;
-            if (hint>=map->datasize){
+            if (hint>=map->data.size()){
               i = map->find_node(key);
             } else if (map->data[hint]!=key){
               i = map->find_node(key,hint);
@@ -1133,42 +1483,42 @@ namespace wmath{
     // void swap(unordered_patch_map&); // TODO
     size_type max_size()         const{return numeric_limits<size_type>::max();}
     bool empty()                 const{return (num_data==0);}
-    size_type bucket_count()     const{return datasize;}
+    size_type bucket_count()     const{return data.size();}
     size_type max_bucket_count() const{return numeric_limits<size_type>::max();}
     void rehash(const size_type& n) { if (n>=size()) resize(n); }
     void reserve(const size_type& n){ if (3*n>=2*(size()+1)) resize(n*3/2); }
     pair<iterator,bool> insert ( const value_type& val ){
-      const size_type i = find(val.first);
-      if (i<datasize) return {iterator(i,val.first,this),false};
+      const size_type i = find(val);
+      if (i<data.size()) return {iterator(i,val,this),false};
       enshure_size();
-      const size_type j = insert_node(val.first);
-      data[j].second=val.second;
+      const size_type j = reserve_node(val);
+      data[j]=val;
       return {data[j],true};
     }
     template <class P>
     pair<iterator,bool> insert ( P&& val ){
       const size_type i = find(val.first);
-      if (i<datasize) return {iterator(i,val.first,this),false};
+      if (i<data.size()) return {iterator(i,val.first,this),false};
       enshure_size();
-      const size_type j = insert_node(val.first);
-      swap(data[j].second,val.second);
+      const size_type j = reserve_node(val);
+      swap(data[j],val);
       return {data[j],true};
     }
     iterator insert ( const_iterator hint, const value_type& val ){
-      const size_type i = find(val.first,hint.hint);
-      if (i<datasize) return {iterator(i,val.first,this),false};
+      const size_type i = find(val,hint.hint);
+      if (i<data.size()) return {iterator(i,val,this),false};
       enshure_size();
-      const size_type j = insert_node(val.first);
-      data[j].second=val.second;
+      const size_type j = reserve_node(val);
+      data[j]=val;
       return {data[j],true};
     }
     template <class P>
     iterator insert ( const_iterator hint, P&& val ){
-      const size_type i = find(val.first,hint.hint);
-      if (i<datasize) return {iterator(i,val.first,this),false};
+      const size_type i = find(val,hint.hint);
+      if (i<data.size()) return {iterator(i,val,this),false};
       enshure_size();
-      const size_type j = insert_node(val.first,hint.hint);
-      swap(data[j].second,val.second);
+      const size_type j = reserve_node(val,hint.hint);
+      swap(data[j],val);
       return {data[j],true};
     }
     template <class InputIterator>
@@ -1190,7 +1540,7 @@ namespace wmath{
     }
     pair<iterator,iterator> equal_range(const key_type& k){
       const size_type i = find_node(k);
-      if (i>=datasize) return {end(),end()};
+      if (i>=data.size()) return {end(),end()};
       iterator lo(i,data[i].first,this);
       iterator hi(lo);
       ++hi;
@@ -1199,14 +1549,14 @@ namespace wmath{
     pair<const_iterator,const_iterator>
     equal_range ( const key_type& k ) const{
       const size_type i = find_node(k);
-      if (i>=datasize) return {cend(),cend()};
+      if (i>=data.size()) return {cend(),cend()};
       iterator lo(i,data[i].first,this);
       iterator hi(lo);
       ++hi;
       return {lo,hi};
     }
     float load_factor() const noexcept{
-      return float(num_data)/float(datasize);
+      return float(num_data)/float(data.size());
     }
     float max_load_factor() const noexcept{
       return 1;
@@ -1239,6 +1589,11 @@ namespace wmath{
   void swap(ordered_patch_map<K,K,hash,equal,comp,A>&,
             ordered_patch_map<K,K,hash,equal,comp,A>&);
   */
+
+  // template<>
+  // using unordered_map = ordered_patch_map<>;
+  // template<>
+  // using unordered_set = ordered_patch_map<>;
   
 }
 #endif // ORDERED_PATCH_MAP_H
