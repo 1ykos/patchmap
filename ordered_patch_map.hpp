@@ -11,6 +11,8 @@
 #include <iostream>
 #include <iterator>
 #include <stdexcept>
+#include <boost/container/allocator.hpp>
+#include <boost/interprocess/allocators/allocator.hpp>
 #include <typeinfo>
 #include <exception>
 #include <memory>
@@ -57,12 +59,15 @@ namespace wmath{
            class comp        = typename conditional<is_injective<hash>::value,
                                                     dummy_comp<key_type>,
                                                     std::less<key_type>>::type,
-           class alloc       = std::allocator<std::pair<key_type,mapped_type>>
+         //class alloc       = std::allocator<std::pair<key_type,mapped_type>>
+           class alloc       =
+             boost::container::allocator<std::pair<key_type,mapped_type>,2>
           >
   class ordered_patch_map{
     public:
       typedef alloc allocator_type;
       typedef typename alloc::value_type value_type;
+      typedef typename alloc::pointer value_pointer;
       typedef typename alloc::reference reference;
       typedef typename alloc::const_reference const_reference;
       typedef typename alloc::difference_type difference_type;
@@ -72,11 +77,11 @@ namespace wmath{
       size_type num_data;
       size_type datasize;
       size_type inversed;
-      size_type nextsize;
       size_type masksize;
       pair<key_type,mapped_type> * data;
       size_type * mask;
       allocator_type allocator;
+      boost::container::allocator<size_type,2> maskallocator;
       comp comparator;
       equal equator;
       hash hasher;
@@ -262,13 +267,13 @@ namespace wmath{
           if (i>=datasize) return ~size_type(0);
         }
       }
-      size_type const inline insert_node(
+      size_type const inline reserve_node(
           const key_type& key,
           const size_type& hint,
           const hash_type& ok
           ){
         assert(hint<datasize);
-        size_type i;
+        size_type i = hint;
         assert((i+1)*inversed>ok||i==datasize-1);
         assert((i-1)*inversed<=ok||i==0);
         if (ok < index(i)) {
@@ -280,53 +285,36 @@ namespace wmath{
         }
         assert(i<datasize);
         assert(!is_set(i));
-        //cout << i << " " << key << endl;
-        allocator_traits<alloc>::construct(allocator,data+i,key,mapped_type());
-        //data[i].first=key;
         set(i);
         ++num_data;
-        //cout << "insert_node at " << i << endl;
-        //const size_type j = i;
         while(true){
           if (i==0) break;
-          //cout << i-1 << " " << i << endl;
-          //cout << index(i-1) << " " << index(i) << endl;
           if (!is_set(i-1)) break;
-          //if (is_less(key,data[i-1].first,ok)) swap(data[i],data[i-1]);
-          //if (is_less(data[i].first,data[i-1].first)) swap(data[i],data[i-1]);
           if (is_less(key,data[i-1].first,ok)) swap(data[i],data[i-1]);
           else break;
           --i;
         }
         while(true){
           if (i+1>=datasize) break;
-          //cout << i << " " << i+1 << endl;
-          //cout << index(i) << " " << index(i+1) << endl;
           if (!is_set(i+1)) break;
-          //if (is_more(key,ok)) swap(data[i],data[i+1]);
-          //if (is_more(data[i].first,data[i+1].first)) swap(data[i],data[i+1]);
           if (is_more(key,data[i+1].first,ok)) swap(data[i],data[i+1]);
           else break;
           ++i;
         }
-        //cout << int(i)-int(j) << " " << int(j)-int(hint) << endl;
-        assert(check_ordering());
         return i;
       }
-      size_type inline insert_node(
+      size_type inline reserve_node(
           const key_type& key,
           const size_type& hint){
         const hash_type ok = order(key);
         size_t i = hint;
-        // TODO use hint better 
-        return insert_node(key,i,ok);
+        return reserve_node(key,i,ok);
       }
-      // TODO move version insert_node(K&& key)
-      size_type inline insert_node(const key_type& key){
+      size_type inline reserve_node(const key_type& key){
         const hash_type ok = order(key);
         const size_type hint = map(ok);
         assert(hint<datasize);
-        return insert_node(key,hint,ok);
+        return reserve_node(key,hint,ok);
       }
       size_type inline find_node_binary(
           const key_type& key,
@@ -531,32 +519,61 @@ namespace wmath{
             +to_string(i)+" out of bounds"
            );
       }
+      void const resize_out_of_place(const size_type& n){
+        //cerr << "resize_out_of_place freom " << datasize << " to " << n << endl;
+        size_type old_datasize = n;
+        size_type old_masksize =
+          (old_datasize+digits<size_type>()-1)/digits<size_type>();
+        value_pointer old_data = allocator.allocate    (old_datasize); 
+        size_type *   old_mask = maskallocator.allocate(old_masksize);
+        for (size_type i=0;i!=old_masksize;++i) old_mask[i]=0;
+        num_data = 0;
+        swap(old_mask,mask);
+        swap(old_data,data);
+        swap(old_datasize,datasize);
+        swap(old_masksize,masksize);
+        inversed = (~size_type(0))/(datasize-1);
+        //cerr << old_mask << " " << mask << endl;
+        //cerr << old_data << " " << data << endl;
+        for (size_type n=0;n!=old_datasize;++n){
+          //cout << n << endl;
+          const size_type i = n/digits<size_type>();
+          const size_type j = n%digits<size_type>();
+          if (old_mask[i]&(size_type(1)<<(digits<size_type>()-j-1))){
+            const size_type l = reserve_node(old_data[n].first);
+            //cout << n << " " << l << endl;
+            data[l] = old_data[n];
+          }
+        }
+        //cerr << "scary free " << endl;
+        maskallocator.deallocate(old_mask,old_masksize);
+        allocator.deallocate    (old_data,old_datasize);
+        //cerr << "done" << endl;
+      }
     public:
       // constructor
       ordered_patch_map(const size_type& datasize = 0)
         :datasize(datasize)
       {
         num_data = 0;
-        nextsize = (datasize/digits<size_type>()*3+2)/2*digits<size_type>();
         inversed = (~size_type(0))/(datasize-1);
         data     = allocator_traits<alloc>::allocate(allocator,datasize);
         masksize = (datasize+digits<size_type>()-1)/digits<size_type>();
-        mask = new size_type[masksize]();
+        mask     = maskallocator.allocate(masksize);
+        for (size_type i=0;i!=masksize;++i) mask[i]=0;
       }
       ~ordered_patch_map(){                                  // destructor
-        delete[] mask;
+        maskallocator.deallocate(mask,masksize);
         allocator_traits<alloc>::deallocate(allocator,data,datasize);
-        //delete[] data;
       }
       ordered_patch_map(ordered_patch_map&& other) noexcept  // move constructor
       {
-        mask = nullptr;
-        data = nullptr;
+        mask = maskallocator.allocate(0);
+        data = allocator.allocate(0);
         swap(mask,other.mask);
         swap(data,other.data);
         swap(datasize,other.datasize);
         swap(inversed,other.inversed);
-        swap(nextsize,other.nextsize);
         swap(masksize,other.masksize);
       }
       template<
@@ -585,14 +602,14 @@ namespace wmath{
            comp_other,
            alloc_other
          > other_type;
-        delete[] mask;
+        maskallocator.deallocate(mask,masksize);
         allocator_traits<alloc>::deallocate(allocator,data,datasize);
         num_data = other.num_data;
         datasize = other.datasize;
         inversed = other.inversed;
-        nextsize = other.nextsize;
         masksize = other.masksize;
-        mask = new size_type[masksize]();
+        mask     = maskallocator.allocate(masksize);
+        for (size_type i=0;i!=masksize;++i) mask[i]=0;
         data = allocator_traits<alloc>::allocate(allocator,datasize);
         if constexpr (
             is_same<hash , hash_other>::value
@@ -617,9 +634,9 @@ namespace wmath{
         num_data = other.num_data;
         datasize = other.datasize;
         inversed = other.inversed;
-        nextsize = other.nextsize;
         masksize = other.masksize;
-        mask = new size_type[masksize]();
+        mask     = maskallocator.allocate(masksize);
+        for (size_type i=0;i!=masksize;++i) mask[i]=0;
         data = allocator_traits<alloc>::allocate(allocator,datasize);
         memcpy(reinterpret_cast<void*>(mask),
                reinterpret_cast<void*>(other.mask),
@@ -642,7 +659,6 @@ namespace wmath{
         swap(data,other.data);
         swap(datasize,other.datasize);
         swap(inversed,other.inversed);
-        swap(nextsize,other.nextsize);
         swap(masksize,other.masksize);
         return *this;
       }
@@ -678,47 +694,53 @@ namespace wmath{
         num_data=0;
       }
       void const resize(const size_type& n){
-        //cout << "resizing from " << datasize << " to " << n << endl;
-        //cout << "$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$" << endl;
         if (n<num_data) return;
-        value_type * olddata = allocator_traits<alloc>::allocate(allocator,n);
-        //value_type * olddata = new value_type[n];
-        masksize = (n+digits<size_type>()-1)/digits<size_type>();
-        size_type * oldmask = new size_type[masksize]();
-        swap(olddata,data);
-        swap(oldmask,mask);
-        const size_type olddatasize = datasize;
-        datasize = n;
-        if (datasize<257) nextsize=2*datasize;
-        else nextsize = datasize+olddatasize;
-        //nextsize = datasize+olddatasize;
-        if (nextsize==datasize) nextsize+=datasize;
+        if constexpr (!is_same<
+            alloc,
+            boost::container::allocator<std::pair<key_type,mapped_type>,2>
+            >::value){
+          resize_out_of_place(n);
+          return;
+        }
+        if (datasize == 0){
+          resize_out_of_place(n);
+          return;
+        }
+        size_type old_datasize = n;
+        size_type min_datasize = (datasize+old_datasize+1)/2;
+        value_pointer p = allocator.allocation_command(
+            boost::interprocess::expand_fwd,
+            datasize,
+            old_datasize,
+            data);
+        if (old_datasize <= min_datasize){
+          datasize = old_datasize;
+          resize_out_of_place(n);
+          return;
+          p = allocator.allocation_command(
+              boost::interprocess::expand_bwd,datasize,old_datasize,data);
+        }
+        //cerr << "in place resize, yea :D " << endl;
+        swap(datasize,old_datasize);
+        if (datasize-1) inversed = (~size_type(0))/(datasize-1);
+        else inversed = 0;
+        size_type old_masksize =
+          (datasize+digits<size_type>()-1)/digits<size_type>();
+        size_type * old_mask = maskallocator.allocate(old_masksize);
+        for (size_type i=0;i!=old_masksize;++i) old_mask[i]=0;
         num_data = 0;
-        //const size_type oldinversed = inversed;
-        inversed = (~size_type(0))/(datasize-1);
-        size_type j = 0;
-        const size_type c = (datasize+olddatasize/2)/olddatasize;
-        for (size_type i=0;i!=olddatasize;++i){
-          const size_type k = i/digits<size_type>();
-          const size_type l = i%digits<size_type>();
-          if (oldmask[k]&(size_type(1)<<(digits<size_type>()-l-1))){
-            //cout << j << " " ;
-            //j=insert_node(olddata[i].first);//,j+c<datasize?j+c:j);
-            //j=insert_node(olddata[i].first,j+c<datasize?j+c:j);
-            //cout << j << endl;
-            //const size_type hint = map(i*oldinversed);
-            //data[j].second=olddata[i].second;
-            data[insert_node(olddata[i].first)].second=olddata[i].second;
-            //operator[](olddata[i].first)=olddata[i].second;
-            //
+        swap(old_mask,mask);
+        swap(old_masksize,masksize);
+        for (size_type n=old_datasize-1;n<old_datasize;--n){
+          const size_type i = n/digits<size_type>();
+          const size_type j = n%digits<size_type>();
+          if (old_mask[i]&(size_type(1)<<(digits<size_type>()-j-1))){
+            value_type temp = move(data[n]);
+            const size_type l = reserve_node(temp.first);
+            data[l] = move(temp);
           }
         }
-        assert(check_ordering());
-        assert(test_size()==num_data);
-        //cout << "test" << endl;
-        allocator_traits<alloc>::deallocate(allocator,olddata,olddatasize);
-        //delete[] olddata;
-        delete[] oldmask;
+        maskallocator.deallocate(old_mask,old_masksize);
       }
       size_type inline size() const { return num_data; }
       size_type const test_size() const {
@@ -745,20 +767,35 @@ namespace wmath{
         return ordered;
       }
       void inline enshure_size(){
+        /*const size_type nextsize =
+          (16*datasize/10/digits<size_type>()+1)*digits<size_type>();*/
+        const size_type l2 = log2(datasize+1); 
+        if ( (256*4+l2*l2*5)*num_data < (256+l2*l2)*4*datasize ) return;
+        if (datasize < 257){
+          size_type nextsize;
+          if (datasize == 0) nextsize = digits<size_type>();
+          else nextsize = 2*datasize;
+          resize(nextsize);
+        } else {
+          resize(50*datasize/31);
+        }
+        /*
       //if ((num_data+2)*4>=datasize*3) resize(nextsize); // 0.75
       //if (num_data*9>=7*datasize) resize(nextsize);   // 0.7777777777777778
       //if (num_data*5>=4*datasize) resize(nextsize);   // 0.8
-      //if (num_data*6>=5*datasize) resize(nextsize);   // 0.8333333333333334
-        if ((num_data+2)*8>=datasize*7) resize(nextsize); // 0.875
+        if (num_data*6>=5*datasize) resize(nextsize);   // 0.8333333333333334
+      //if ((num_data+2)*8>=datasize*7) resize(nextsize); // 0.875
       //if ((num_data+2)*16>=datasize*15) resize(nextsize); // 0.9375
       //if ((num_data+2)*32>=datasize*31) resize(nextsize); // 0.96875
-      //if ((num_data+2)*64>=datasize*63) resize(nextsize); // 0.984375
+      //if ((num_data+2)*64>=datasize*63) resize(nextsize); // 0.984375 */
       }
       mapped_type& operator[](const key_type& k){
         const size_type i = find_node(k);
         if (i<datasize) return data[i].second;
         enshure_size();
-        return data[insert_node(k)].second;
+        const size_type j = reserve_node(k);
+        allocator_traits<alloc>::construct(allocator,data+j,k,mapped_type());
+        return data[j].second;
       }
       const mapped_type& operator[](const key_type& k) const {
         const size_type i = find_node(k);
@@ -1237,8 +1274,8 @@ namespace wmath{
       const size_type i = find(val.first);
       if (i<datasize) return {iterator(i,val.first,this),false};
       enshure_size();
-      const size_type j = insert_node(val.first);
-      data[j].second=val.second;
+      const size_type j = reserve_node(val.first);
+      allocator_traits<alloc>::construct(allocator,data+j,val);
       return {data[j],true};
     }
     template <class P>
@@ -1246,16 +1283,16 @@ namespace wmath{
       const size_type i = find(val.first);
       if (i<datasize) return {iterator(i,val.first,this),false};
       enshure_size();
-      const size_type j = insert_node(val.first);
-      swap(data[j].second,val.second);
+      const size_type j = reserve_node(val.first);
+      allocator_traits<alloc>::construct(allocator,data+j,val);
       return {data[j],true};
     }
     iterator insert ( const_iterator hint, const value_type& val ){
       const size_type i = find(val.first,hint.hint);
       if (i<datasize) return {iterator(i,val.first,this),false};
       enshure_size();
-      const size_type j = insert_node(val.first);
-      data[j].second=val.second;
+      const size_type j = reserve_node(val.first);
+      allocator_traits<alloc>::construct(allocator,data+j,val);
       return {data[j],true};
     }
     template <class P>
@@ -1263,8 +1300,8 @@ namespace wmath{
       const size_type i = find(val.first,hint.hint);
       if (i<datasize) return {iterator(i,val.first,this),false};
       enshure_size();
-      const size_type j = insert_node(val.first,hint.hint);
-      swap(data[j].second,val.second);
+      const size_type j = reserve_node(val.first,hint.hint);
+      allocator_traits<alloc>::construct(allocator,data+j,val);
       return {data[j],true};
     }
     template <class InputIterator>
