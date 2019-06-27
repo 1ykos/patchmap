@@ -1234,13 +1234,14 @@ namespace wmath{
         if constexpr (!dynamic) return;
 #if defined PATCHMAP_EXPANSIVE
         if (num_data*4<datasize*3) return;
-        if (datasize) resize(2*datasize);
+        if (datasize) resize((7*datasize+2)/4);
         else resize(256);
         return;
 #endif
-        const size_type l2 = log2(datasize+1);
+        if (num_data*8 < datasize*7 ) return;
+        //const size_type l2 = log2(datasize+1);
         //if ( (128*15+l2*l2*16)*num_data < (128+l2*l2)*15*datasize ) return;
-        if ( (128*7+l2*l2*8)*num_data < (128+l2*l2)*7*datasize ) return;
+        //if ( (128*7+l2*l2*8)*num_data < (128+l2*l2)*7*datasize ) return;
         size_type nextsize;
         if (datasize < 257){
           if (datasize == 0) nextsize = digits<size_type>();
@@ -1255,15 +1256,6 @@ namespace wmath{
           nextsize*= digits<size_type>();
         }
         resize(nextsize);
-        /*
-      //if ((num_data+2)*4>=datasize*3) resize(nextsize); // 0.75
-      //if (num_data*9>=7*datasize) resize(nextsize);   // 0.7777777777777778
-      //if (num_data*5>=4*datasize) resize(nextsize);   // 0.8
-        if (num_data*6>=5*datasize) resize(nextsize);   // 0.8333333333333334
-      //if ((num_data+2)*8>=datasize*7) resize(nextsize); // 0.875
-      //if ((num_data+2)*16>=datasize*15) resize(nextsize); // 0.9375
-      //if ((num_data+2)*32>=datasize*31) resize(nextsize); // 0.96875
-      //if ((num_data+2)*64>=datasize*63) resize(nextsize); // 0.984375 */
       }
       _mapped_type& operator[](const key_type& k){
         if (VERBOSE_PATCHMAP)
