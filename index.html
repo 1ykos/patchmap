@@ -140,7 +140,7 @@ red {
   </p>
   <h3><a name="The best space-time trade-off">The best trade-off between memory usage and speed</h3>
   <p>
-  We realize that we are not looking for the fastest hash table or the most memory efficient, we are looking for the hash table that has the best trade-off between space and time. Asymptotically the best trade-off between space and time is the one that has the lowest product of the the two. Imagine building a big server that does nothing but search entries in a hash table. Say the hash table is very large so that the small offset of the price for the CPU and the other hardware will be dwarfed by the cost of the RAM. The server will have a finite life-time, therefore the cost of a single lookup into the hash table will be directly proportional to the product of the time it takes to access an element and the amount of space the hash table needs per element. Let's call this concept the space-time.
+  We realize that we are not looking for the fastest hash table or the most memory efficient, we are looking for the hash table that has the best trade-off between space and time. Asymptotically the best trade-off between space and time is the one that has the lowest product of the the two. Imagine building a big server that does nothing but search entries in a hash table. Say the hash table is very large so that the offset of the price for the CPU and the other hardware will be dwarfed by the cost of the RAM. The server will have a finite life-time, therefore the cost of a single lookup into the hash table will be directly proportional to the product of the time it takes to access an element and the amount of space the hash table needs per element. Let's call this concept the space-time.
   </p>
   <h2><a name="The patchmap">The <tt>patchmap</tt></h2>
   <p>
@@ -2369,10 +2369,10 @@ AElFTkSuQmCC" style="margin-right:2em;min-width:200px;"/>
   <tr> <td><tt>google::sparse_hash_map</tt>&nbsp;&nbsp;</td> <td>minor               </td> <td>frequent  </td> </tr>
   <tr> <td><tt>google::dense_hash_map</tt>&nbsp;&nbsp; </td> <td>severe              </td> <td>rare      </td> </tr>
   <tr> <td><tt>khash</tt>&nbsp;&nbsp;                  </td> <td>severe              </td> <td>occasional</td> </tr>
-  </table>
+  </table><br>
   <h2>Additional points<h2>
   <h3>How to make a good hash function?</h3>
-  <p>I had been thinking about <a href="" target="_blank">good hash functions</a> for a long time so it was not hard to combine two multiplications and a binary rotation to get a hash function that had a very even output. This is similar to what Malte Skarupke ended up doing starting with a single multiplication with the golden ratio, aka <a href="" target="_blank">fibonacci hashing</a> and composing it with a bitshift. Galois Field multiplications are a great building block too, but my laptop is a little old and therefore struggles with carry-less multiplications.
+  <p>I had been thinking about <a href="https://stackoverflow.com/questions/35985960/c-why-is-boosthash-combine-the-best-way-to-combine-hash-values/50978188#50978188" target="_blank">good hash functions</a> for a long time so it was not hard to combine two multiplications and a binary rotation to get a hash function that had a very even output. This is similar to what Malte Skarupke ended up doing starting with a single multiplication with the golden ratio, aka <a href="https://probablydance.com/2018/06/16/fibonacci-hashing-the-optimization-that-the-world-forgot-or-a-better-alternative-to-integer-modulo/" target="_blank">fibonacci hashing</a> and composing it with a bitshift. Galois Field multiplications are a great building block too, but my laptop is a little old and therefore struggles with carry-less multiplications.
   </p>
   <h3><a name="The backstory"> The backstory</h3>
   <p>
@@ -2386,14 +2386,14 @@ AElFTkSuQmCC" style="margin-right:2em;min-width:200px;"/>
   </p>
   <h3><a name="Comparing to other approaches">Comparing to other approaches</h3>
   <p>
-  This approach might look very similar to the one suggested in &quot;<a href="" target="_blank">Ordered Hash Tables</a>&quot; (01 January 1974) O. Amble  D. E. Knuth but there is a mayor difference in that the hash tables there are ordered first by the hash of the keys and then by the value of the key. If the entries are however only ordered by the hash value there exists a global order, which all of a sudden allows advanced search strategies like interpolation search and binary search.
+  This approach might look very similar to the one suggested in &quot;<a href="https://doi.org/10.1093/comjnl/17.2.135" target="_blank">Ordered Hash Tables</a>&quot; (01 January 1974) O. Amble  D. E. Knuth but there is a mayor difference in that the hash tables there are ordered first by the hash of the keys and then by the value of the key. If the entries are however only ordered by the hash value there exists a global order, which all of a sudden allows advanced search strategies like interpolation search and binary search.
   </p>
   <p>
   In fact the approach is much more similar to robin hood hashing with linear probing because if two keys collide at the same position the key whose hash value is lower will also have been displaced more and will therefore displace the key with the larger hash value, therefore keeping up the same order. There has however been no hash table using robin hood hashing with linear probing that takes advantage of this fact.
   </p>
   <h3><a name="Availability">Availability</h3>
   <p>
-  <a href="" target="_blank">https://github.com/1ykos/ordered_patch_map</a>
+  <a href="https://github.com/1ykos/ordered_patch_map" target="_blank">https://github.com/1ykos/ordered_patch_map</a>
   </p>
   <p>
   [ C++17, open source, beta stadium, let me know if you want to use it, I will try to make it work for you! ]
@@ -2403,7 +2403,7 @@ AElFTkSuQmCC" style="margin-right:2em;min-width:200px;"/>
   For a more detailed description of the inner workings of the <tt>patchmap</tt> you can have a look at (open-access):
   </p>
   <p>
-  <a href="" target="_blank">http://www.dcc.ufla.br/infocomp/index.php/INFOCOMP/article/view/581</a>
+  <a href="http://www.dcc.ufla.br/infocomp/index.php/INFOCOMP/article/view/581" target="_blank">http://www.dcc.ufla.br/infocomp/index.php/INFOCOMP/article/view/581</a>
   </p>
 </article>
 </section>
