@@ -85,7 +85,7 @@ div.content {
   height: 100%;
 }
 
-@media screen and (max-width: 700px) {
+@media screen and (max-width: 800px) {
   .sidebar {
     width: 100%;
     height: auto;
@@ -113,88 +113,42 @@ red {
  <h3> <tt> sumpflager::patchmap </tt> </h3>
  <p  style="text-align: center;">Wolfgang Brehm</p>
  <ul>
-  <li><a href="#The best hash table">The best hash table</a></li>
-  <li><a href="#The best space-time trade-off">The best space-time trade-off</a></li>
-  <li><a href="#The patchmap">The <tt>patchmap</tt></a></li>
-  <li><a href="#Memory efficient associations">Memory efficient associations</a></li>
-  <li><a href="#Performance comparison">Performance comparison</a></li>
-  <li><a href="#Competing with google::sparse_hash_map">Competing with <tt>google::sparse_hash_map</tt></a></li>
-  <li><a href="#Tombstones and zombies">Tombstones and zombies</a></li>
-  <li><a href="#The backstory">The backstory</a></li>
-  <li><a href="#Availability">Availability</a></li>
-  <li><a href="#Detailed description">Publication</li>
+  <li><a href="#The best hash table">The best hash table</a></li><br>
+  <li><a href="#The best space-time trade-off">The best space-time trade-off</a></li><br>
+  <li><a href="#The patchmap">The <tt>patchmap</tt></a></li><br>
+  <li><a href="#Memory efficient associations">Memory efficient associations</a></li><br>
+  <li><a href="#Performance comparison">Performance comparison</a></li><br>
+  <li><a href="#The algorithm">The algorithm</a></li><br>
+  <li><a href="#Competing with google::sparse_hash_map">Competing with <tt>google::sparse_hash_map</tt></a></li><br>
+  <li><a href="#Tombstones and zombies">Tombstones and zombies</a></li><br>
+  <li><a href="#The backstory">The backstory</a></li><br>
+  <li><a href="#Availability">Availability</a></li><br>
+  <li><a href="#Publication">Publication</a></li><br>
  </ul>
 </div>
 <div class="content">
   <h2 style="text-align: center;">Pseudorandom Ordering</h2>
   <h2 style="text-align: center;">for a Memory Efficient Hash Table</h2>
 
-  <h3><a name="The best hash table">The best hash table</h3>
+  <h2><a name="The best hash table">The best hash table</h3>
   <p>
-  You probably came here looking for the best hash table. A hash table is commonly used to associate keys with values to implement dictionaries or to test if a key is part of a set of keys to implement set operations. To achieve this the keys or key-value pairs are stored at a pseudorandom position determined first by a hash of the key and then by the probing strategy or by chaining if the position is already occupied. The first step creats a cache miss which, due to its pseudorandom nature, cannot be avoided and the second step occurs more frequently the fuller the table becomes, it is a function of the load factor α. The load factor is defined as the number of elements stored in the table divided by the total number of positions available in the table. Therefore, essentially, the largest table is also the fastest because it has to resolve the least collisions.
-  </p>
-  <h3><a name="The best space-time trade-off">The best trade-off between memory usage and speed</h3>
-  <p>
-  We realize that we are not just looking for the fastest hash table, we are looking for the hash table that has the best trade-off between space and time. Asymptotically the best trade-off between space and time is the one that has the lowest product of the the two. Imagine building a big server that does nothing but search entries in a hash table. Say the hash table is very large so that the small offset of the price for the CPU and the other hardware will be dwarfed by the cost of the RAM. The server will have a finite life-time, therefore the cost of a single lookup into the hash table will be directly proportional to the product of the time it takes to access an element and the amount of space the hash table needs per element. Let's call this the space-time.
-  </p>
-  <h2><a name="The patchmap">The <tt>patchmap</tt></h2>
-  <p>
-  The <tt>patchmap</tt> is my attempt at achieving this magical smallest space-time. Recently I was frustrated with the performance of <tt>std::unordered_map</tt> and before I could even test other hash tables I had come up with an idea how to save space that I needed to test, first the idea, more about the motivation later.
+  You probably came here looking for the best hash table. A hash table is commonly used to associate keys with values to implement dictionaries or to test if a key is part of a set of keys to implement set operations. To achieve this the keys or key-value pairs are stored at a pseudorandom position determined first by a hash of the key and then either storing all the entries that map to the same position in a secondary data structure (this method is called chaining) or by a probing strategy to finds another position that is free. The first step creats a cache miss. A cache miss is when memory is requested from RAM, which is not in any of the caches of the CPU. The time this takes is around 300 CPU cycles and typically determines the performance of a hash table. This cannot be avoided due to the pseudorandom nature of hashing. The second step however occurs more frequently the fuller the table becomes, it is a function of the load factor α. The load factor is defined as the number of elements stored in the table divided by the total number of positions available in the table. Therefore, essentially, the largest table is also the fastest because it has to resolve the least collisions, leading to the least amount of cache misses.
   </p>
   <h3><a name="Memory efficient associations">The most memory efficient datastructure for associations</h3>
   <p>
-  The most memory efficient data structure to store and access uniformly distributed integers is a sorted array. Using an interpolation search the values can be retrieved in log₂(log₂(n)). Note that this scales with n whereas lookups into a hash table do not scale with n. To have 100% memory efficiency with a hash table one would need to know a perfect hash function for the keys that we want to store in advance, which is not possible in general. Only then this hash table would still be able to retrieve keys in a time independent of the size of the hash table. We can however develop the sorted array into a hash table.
+  The most memory efficient data structure to store and access uniformly distributed integers is a sorted array. Using an interpolation search the values can be retrieved in log₂(log₂(n)). Note that this scales with n whereas lookups into a hash table do not scale with n. To have 100% memory efficiency with a hash table one would need to know a perfect hash function for the keys that we want to store in advance, which is not possible in general. Only then this hash table would still be able to retrieve keys in a time independent of the size of the hash table. We can however develop the sorted array into a hash table, more on that later.
   </p>
+  <h3><a name="The best space-time trade-off">The best trade-off between memory usage and speed</h3>
   <p>
-  If there is more memory available some positions in the sorted array can be left empty. The sorted values will form clusters or "patches" which will be sorted internally and with respect to each other. The fact that there are more positions than entries to store essentially means that the offset from the position determined by linear interpolation can be minimised. This in turn means that an interpolation search will be able to find the values much quicker, in fact for a given load factor α&lt;1 the number of steps that an interpolation search needs will be independent of n ( number of elements stored in the table ).
+  We realize that we are not looking for the fastest hash table or the most memory efficient, we are looking for the hash table that has the best trade-off between space and time. Asymptotically the best trade-off between space and time is the one that has the lowest product of the the two. Imagine building a big server that does nothing but search entries in a hash table. Say the hash table is very large so that the small offset of the price for the CPU and the other hardware will be dwarfed by the cost of the RAM. The server will have a finite life-time, therefore the cost of a single lookup into the hash table will be directly proportional to the product of the time it takes to access an element and the amount of space the hash table needs per element. Let's call this concept the space-time.
   </p>
+  <h2><a name="The patchmap">The <tt>patchmap</tt></h2>
   <p>
-  Now this is all good but what if the keys we want to store are not uniform? This is where <tt>patchmap</tt> comes in. By sorting the keys by their hash value the order becomes pseudorandom. If the hash function is good then the values that it produces will be uniform even if the keys themselves are not. Therefore by combining a good hash function with an order based on the hash values a data structure can be created that stores keys or key-value pairs in a very memory efficient way and that interpolates between a (randomly) sorted array and a hash table.
+  The <tt>patchmap</tt> is my attempt at achieving this magical smallest space-time. Recently I was frustrated with the performance of <tt>std::unordered_map</tt> and before I could even test other hash tables I had come up with an idea of how to save space that I needed to try. Let's first look at how it compares, then at the algorithm, more about the motivation later.
   </p>
-  <h3>Example: Inserting into a patch</h3>
-  <p>
-  To know which buckets in the table are set and which are not one could reserve a special value like the google implementations do for an empty key. But I have decided to use a binary mask that indicates whether an entry is set or not, because I do not want to impose any restrictions on the keys that can be stored in the hash table.
-  </p>
-  <p>
-  When inserting into the <tt>patchmap</tt> it goes something like this:
-  </p>
-  <ul>
-  <li>map the hash value of the key to the range of the table</li>
-  <li>look at the mask to find the closest free bucket to this position</li>
-  <li>insert the key-value pair there</li>
-  <li>restore the order by sorting by the hash value with a single insertion-sort step</li>
-  </ul>
-  <div>
-  <div>
-  <h4>The <tt>patchmap</tt> before insertion</h4>
-  <span <span style='font-size: large;'>
-  <tt>
-key&nbsp;&nbsp;&nbsp;...__257936__...<br>
-hash&nbsp;&nbsp;...__455678__...<br>
-mask&nbsp;&nbsp;...--++++++--...<br>
-  </tt>
-  </span>
-  <h4>First step of inseting the key <b>1</b> with hash value of <b>5</b></h4>
-  <span <span style='font-size: large;'>
-  <tt>
-key&nbsp;&nbsp;&nbsp;...__2579361__...<br>
-hash&nbsp;&nbsp;...__4556787__...<br>
-mask&nbsp;&nbsp;...--+++++++--...<br>
-  </tt>
-  </span>
-  <h4>The order has been restored in a single insertion sort step</h4>
-  <span <span style='font-size: large;'>
-  <tt>
-key&nbsp;&nbsp;&nbsp;...__2579136__...<br>
-hash&nbsp;&nbsp;...__4556778__...<br>
-mask&nbsp;&nbsp;...--+++++++--...<br>
-  </tt>
-  </span>
-  </div>
-  </div>
   <h3><a name="Performance comparison">Performance compared to other hash tables</h3>
   <p>
-  How does this approach compare to other approaches and can the <tt>patchmap</tt> beat their space-time? I designed a small benchmark to be as fair as possible. Only random keys can produce comparable memory access patterns across different hash table implementations using different hash functions and probing strategies. For the following benchmark 2²⁶ random 64 bit keys were associated with arbitrary 64 bit values. The average memory consumption and time for insertion, lookup and deletion per key-value pair can be found in the plots below for the different hash tables.
+  I designed a small benchmark to be as fair as possible. Only random keys can produce comparable memory access patterns across different hash table implementations using different hash functions and probing strategies. For the following benchmark 2²⁶ random 64 bit keys were associated with arbitrary 64 bit values. The average memory consumption and time for insertion, lookup and deletion per key-value pair can be found in the plots below for the different hash tables. I tested all hash tables that looked promising.
   </p>
   <div class="flex-wrap-container">
     <div class="svg">
@@ -1286,6 +1240,7 @@ mask&nbsp;&nbsp;...--+++++++--...<br>
          d="M 490,1554.5 V 320 h 2209.5 v 1234.5 z" /></g></g></svg>
     </div>
   <div>
+  <br>
   <tt>
   <table style="width:100%">
   <tr>
@@ -1309,9 +1264,14 @@ mask&nbsp;&nbsp;...--+++++++--...<br>
     <td>F14ValueMap: ▲&nbsp;</td>
   </table>
   </tt>
+  <br>
   </div>
   </div>
-  <div>
+  <p>
+  The best hash-table implementations define a lower bound of the best achievable space-time trade-off. I chose to fit c • ( 1+(α-1)¯¹   ) as this is the asymptotic complexity of double hashing, which is one of the best probing strategies and it seemed to fit well. Given this curve of achievable trade-offs we want to choose the one where the product of space and time requirement is the lowest. The solid black line indicates the line where the hash table implementations need to beat if they want to beat the apparently achievable best space-time. Or in short, if a hash table is below the dotted line it is faster than most good hash tables for the given memory efficiency, if it is below the solid line it is more cost efficient than than what can be achieved with most good hash tables.
+  </p>
+  <div style="float: left;margin-right: 2em">
+  <div class="svg">
   <?xml version="1.0" encoding="UTF-8" standalone="no"?>
 <svg
    xmlns:dc="http://purl.org/dc/elements/1.1/"
@@ -1708,30 +1668,707 @@ mask&nbsp;&nbsp;...--+++++++--...<br>
          style="fill:none;stroke:#000000;stroke-width:10;stroke-linecap:butt;stroke-linejoin:miter;stroke-miterlimit:3.79999995;stroke-dasharray:none;stroke-opacity:1"
          d="M 370,2779.5 V 320 h 2329.5 v 2459.5 z" /></g></g></svg>
   </div>
+  </div>
   <p>
   Average cost for insertion and lookup in the <tt>patchmap</tt> as it is being filled up with 2²⁸ pseudo-random keys. Insertion (in red) shows a strongly quadratic behavior and the function 1+(α/(1-α)²+α)/4 is indicated with a solid black line. Lookup (in blue) is almost linear in α and shows a steep increase only for load factors close to 1. The theoretically derived complexity bound for lookup 1+log₂(log₂((2-α)/(2-2α))+1) is indicated with dashed black line.
   </p>
+  <h3><a name="Conclusion">Conclusion</h3>
+  <p>
+  The best space-time trade-off is achieved by <tt>F14ValueMap</tt> for all categories but successful where the patchmap tuned to the lowest memory efficiency was able to beat it by a very small margin. As successful lookups are often the most prevalent map operations by far this difference could be relevant, if it wasn't so small that it will not be reproducible on a different machine. Therefore Facebooks <tt>F14ValueMap</tt> is the overall best hash table implementation for 64 bit keys and values right now on my machine. But depending on your constraints you might want to use <tt>google::dense_hash_map</tt> if you want a fast hash table and can spare two special keys as a flag for deleted and free. If you want a fast hash table with higher memory efficiency you might want to take a look at <tt>bytell</tt> and especially <tt>patchmap</tt> if insertion and deletions are less frequent than lookups. The fastest hash table in the very high memory efficiency regime is <tt>google::sparse_hash_map</tt>. A Judy array is good for medium to small datasets, but the asymptotic properties are catching up to it at 2²⁶ keys already. The <tt>std::unordered_map</tt> is forced to perform sub-par because the c++ standard requires all iterators except to elements that are directly deleted to stay valid for all hash table operations. This necessitates chaining instead of probing.
+  </p>
   <div>
+  <h2><a name="The algorithm">The algorithm</h3>
+  <p>
+  A sorted array is a compact data structure, it takes up just as much space as absolutely necessary. It also allows for relatively fast acceses on the order of O(log(log(n))) if the keys are uniformly distributed. Insertions and deletions end up being O(n). While this might be good or good enough for some applications, especially when the number of keys is small, it is not what we want from a hash table in general. There is no general compact data structure to my knowledge that allows asymptotically constant lookups, insertions and deletions, but what happens if we allow a sorted array to be more wasteful?
+  </p>
+  <p>
+  If there is more memory available some positions in the sorted array can be left empty. The sorted values will form clusters or "patches" which will be sorted internally and with respect to each other, in between there will be positions that are not set. For insertions this means that the reordering required is much more localised and the cost only a function of the load factor, not the total size. For lookups, because there are more positions than entries to store, the offset from the position determined by linear interpolation can be minimised. This in turn means that an interpolation search will be able to find the values much quicker, in fact for a given load factor α&lt;1 the number of steps that an interpolation search needs will be independent of n ( number of elements stored in the table ) and doubly logarithmic as a function of α.
+  </p>
+  <p>
+  But what if the keys we want to store are not uniform? This is where <tt>patchmap</tt> comes in. By sorting the keys by their hash value the order becomes pseudorandom. If the hash function is good then the values that it produces will be uniform even if the keys themselves are not. Therefore by combining a good hash function with an order given by the hash values a data structure can be created that stores keys or key-value pairs in a very memory efficient way and that interpolates between a (randomly) sorted array and a hash table.
+  </p>
+  <h3>Example: Inserting into a patch</h3>
+  <p>
+  To know which buckets in the table are set and which are not one could reserve a special value like the google implementations do for an empty key. But I have decided to use a binary mask that indicates whether an entry is set or not, because I do not want to impose any restrictions on the keys that can be stored in the hash table. If there were one value of the key that was impossible, like say the <tt>nullptr</tt> it could be used to indicate an empty position, like is being done in the hash table implementations of google.
+  </p>
+  <p>
+  When inserting into the <tt>patchmap</tt> it goes something like this:
+  </p>
+  <ul>
+  <li>map the hash value of the key to the range of the table</li>
+  <li>look at the mask to find the closest free bucket to this position</li>
+  <li>insert the key-value pair there</li>
+  <li>restore the order by sorting by the hash value with a single insertion-sort step</li>
+  </ul>
+  <div>
+  <div>
+  <h4>The <tt>patchmap</tt> before insertion</h4>
+  <span <span style='font-size: large;'>
+  <tt>
+key&nbsp;&nbsp;&nbsp;...__257936__...<br>
+hash&nbsp;&nbsp;...__455678__...<br>
+mask&nbsp;&nbsp;...--++++++--...<br>
+  </tt>
+  </span>
+  <h4>First step of inseting the key <b>1</b> with hash value of <b>5</b></h4>
+  <span <span style='font-size: large;'>
+  <tt>
+key&nbsp;&nbsp;&nbsp;...__2579361__...<br>
+hash&nbsp;&nbsp;...__4556787__...<br>
+mask&nbsp;&nbsp;...--+++++++--...<br>
+  </tt>
+  </span>
+  <h4>The order has been restored in a single insertion sort step</h4>
+  <span <span style='font-size: large;'>
+  <tt>
+key&nbsp;&nbsp;&nbsp;...__2579136__...<br>
+hash&nbsp;&nbsp;...__4556778__...<br>
+mask&nbsp;&nbsp;...--+++++++--...<br>
+  </tt>
+  </span>
+  </div>
+  </div>
+
   <h3><a name="Competing with google::sparse_hash_map">Competing with <tt>google::sparse_hash_map</tt></h3>
   <p>
   The <tt>patchmap</tt> achieves a good speed/space trade-off, but it cannot beat googles sparse hash map although the comparison to it and <tt>sparsepp</tt> was not even very fair in the first place. <tt>sparsepp</tt> and <tt>google::sparse_hash_map</tt> minimize the peak memory consumption instead of the average memory consumption. Each time the other hash tables (including the <tt>patchmap</tt>) have to grow they reserve a new contiguous block of memory, copy the values from the old table, that has become too small, into the new table, therefore taking up at least two times more memory during each grow operation. To make the comparison fair I used a hashed array tree to generate the point for the <tt>patchmap</tt> with the highest memory efficiency. A hashed array tree allows the hash table to grow virtually in place, similar to what realloc allows, but at some additional cost, however keeping non copy-constructible data intact. <br>
-  Still the <tt>patchmap</tt> performs worse at the same memory efficiency for 64-bit keys.
+  Still the <tt>patchmap</tt> performs worse at the high memory efficiency that <tt>google::sparse_hash_map</tt> achieves for 64-bit keys.
   </p>
   <h3><a name="Tombstones and zombies">Tombstones make things fast but they also create zombies</h3>
   <p>
-  The <tt>patchmap</tt> seems to fare worst in comparison to the other hash tables for deletions. This is because I went a different route there. Usually when deleting an element from a hash table elements are not actually removed from the table, they are only marked as dead. This technique is known as tombstoning. It is done mostly because this is the fastest way to delete elements, but also because the other ways often are much harder to implement. This is not the case in the <tt>patchmap</tt>. Deleting works just like insertion, but in reverse. Zombie entries can accumulate and if we don&#39;t pay close attention they can take over the table. Such a worst case scenario can be triggered by repeatedly inserting and deleting arrays while keeping the table at the same size if the implementation has not taken specific precautions to mitigate this issue, usually by rehashing the table as soon as the Zombies accumulate too much.
+  The <tt>patchmap</tt> seems to fare worst in comparison to the other hash tables for deletions. This is because I went a different route there. Usually when deleting an element from a hash table elements are not actually removed from the table, they are only marked as deleted. This technique is known as tombstoning. It is done mostly because this is the fastest way to delete elements, but also because the other ways often are much harder to implement. This is not the case in the <tt>patchmap</tt>. Deleting works just like insertion, but in reverse. Zombie entries can accumulate and if we don&#39;t pay close attention they can take over the table. Such a worst case scenario can be triggered by repeatedly inserting and deleting arrays while keeping the table at the same size if the implementation has not taken specific precautions to mitigate this issue, usually by rehashing the table as soon as the Zombies accumulate too much.
   </p>
+  <img alt="zombie" width="30%" align="left" src="data:image/png;base64,
+iVBORw0KGgoAAAANSUhEUgAAAlgAAAHCCAAAAAAWGOi4AAA42npUWHRSYXcgcHJvZmlsZSB0eXBl
+IGV4aWYAAHjarZ1bkuU2smX/OYo7BOINDAckALOeQQ+/12KESqUq3Ue3tVLKyIw455AE3Lfv7Q/o
+2v/7f53rP/7jP0JspV65tF5HrTf/5JFHnPyh3z///HwNd/5+//4p/Y6/3/3L9683/v7Rr4mv6ecH
+df98DZPvlz/f0PLv95+/fv9q788fYv/9oN8f/PGBySt7D+v3Jn8/KMWf74ffv1/j50bvWf/pcX7/
+6+O7pm/6+dG//D03FmMVPi/FK+4U0v39Hn9elLiLNNLka+f3kHL0O5E/5+87JY1/X7/r9z7C3y3g
+71P/2/rxg/D7+P9Yjp8P+uOx6r+s0+/3Q/n79ftW6Z/vKPy5c/Gf7+h5/njHv6/fOaufs3+ebmbs
+aOT6+1B/POL3J174sJzpe1vlV+O/wp/b92vwq9/zftm1xaM+1/3wlxEiK35CDivMcML+vr4BI4s5
+7tj4GuMb0/e9nloc8f02JfsrnNgu9mexFzG97Fzi2/Ef9xK+6w6vx8U6V16BV8bAh7mLf/l1/es3
+/l9//eWDznHDQ3Ax35+14r6i9sVtuHP+zqvYkHB+17R86xuuny/3v/7jxiZ2sHzL3HnAeT8/H/GU
+8KdtpW+f010uXprvH38Jbf1+AEvEtQs3ExI7cNeQSqjhbjG2EFjHzv5M7jxi9g87EMpV4uIuY06p
+sjk9em3e08L32ljiz7eBFzaipJoaW4MDsVk5l1zxt44JzaukkksptbTSyyizppprqbW2Kk7Nllpu
+pdXWWm+jzZ567qXX3nrvo88RRwLGyjXqaKOPMebkojNPPmvy+sk3nvikJz/lqU97+jOe+WI+b37L
+W9/29ne8c8WVFhBwrbra6musucPGlHbeZdfddt9jz4OtnXTyKaeedvoZZ/5j13539a+79q8791/v
+WvjdtfhtlK9rf+4a327tj48Iwklxz9ixmAM73twBDDq6Z3cPOUd3zj27R0xXSiVyl8XNWcEdYwfz
+DrGc8I+9+3Pn/tN9u1jd/9t9i3+3c5db9/9j5y637p927t/37W92bc0PbtO3QXohawpCJtyPF83Y
++Zdw8p9+fRIfVsCYJ463PCnPWp6ZuJ+Ni8R9+KBx757We0DntljS/fDtfhqP1FbaQENvD4temq9+
+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
+AElFTkSuQmCC" style="margin-right:2em;min-width:200px;"/>
   <table>
-  <tr> <th>hash table&nbsp;&nbsp;                      </th> <th>slowdown</th> <th>rehasing  </th> </tr>
-  <tr> <td><tt>patchmap</tt>&nbsp;&nbsp;               </td> <td>no      </td> <td>none      </td> </tr>
-  <tr> <td><tt>bytell</tt>&nbsp;&nbsp;                 </td> <td>no      </td> <td>none      </td> </tr>
-  <tr> <td><tt>std::unordered_map</tt>&nbsp;&nbsp;     </td> <td>no      </td> <td>none      </td> </tr>
-  <tr> <td><tt>flat_hash_map</tt>&nbsp;&nbsp;          </td> <td>no      </td> <td>none      </td> </tr>
-  <tr> <td><tt>F14ValueMap</tt>&nbsp;&nbsp;            </td> <td>no      </td> <td>none      </td> </tr>
-  <tr> <td><tt>sparsepp</tt>&nbsp;&nbsp;               </td> <td>minor   </td> <td>frequent  </td> </tr>
-  <tr> <td><tt>google::sparse_hash_map</tt>&nbsp;&nbsp;</td> <td>minor   </td> <td>frequent  </td> </tr>
-  <tr> <td><tt>google::dense_hash_map</tt>&nbsp;&nbsp; </td> <td>severe  </td> <td>rare      </td> </tr>
-  <tr> <td><tt>khash</tt>&nbsp;&nbsp;                  </td> <td>severe  </td> <td>occasional</td> </tr>
+  <tr> <th>hash table&nbsp;&nbsp;                      </th> <th>slowdown&nbsp;&nbsp;</th> <th>rehasing  </th> </tr>
+  <tr> <td><tt>patchmap</tt>&nbsp;&nbsp;               </td> <td>no                  </td> <td>none      </td> </tr>
+  <tr> <td><tt>bytell</tt>&nbsp;&nbsp;                 </td> <td>no                  </td> <td>none      </td> </tr>
+  <tr> <td><tt>std::unordered_map</tt>&nbsp;&nbsp;     </td> <td>no                  </td> <td>none      </td> </tr>
+  <tr> <td><tt>flat_hash_map</tt>&nbsp;&nbsp;          </td> <td>no                  </td> <td>none      </td> </tr>
+  <tr> <td><tt>F14ValueMap</tt>&nbsp;&nbsp;            </td> <td>no                  </td> <td>none      </td> </tr>
+  <tr> <td><tt>sparsepp</tt>&nbsp;&nbsp;               </td> <td>minor               </td> <td>frequent  </td> </tr>
+  <tr> <td><tt>google::sparse_hash_map</tt>&nbsp;&nbsp;</td> <td>minor               </td> <td>frequent  </td> </tr>
+  <tr> <td><tt>google::dense_hash_map</tt>&nbsp;&nbsp; </td> <td>severe              </td> <td>rare      </td> </tr>
+  <tr> <td><tt>khash</tt>&nbsp;&nbsp;                  </td> <td>severe              </td> <td>occasional</td> </tr>
   </table>
   <h2>Additional points<h2>
   <h3>How to make a good hash function?</h3>
