@@ -127,28 +127,29 @@ blue { color: blue; }
  </ul>
 </div>
 <div class="content">
-  <h2 style="text-align: center;">Pseudorandom Ordering <br> for a Memory Efficient Hash Table</h2>
+  <h2 style="text-align: center;">Pseudorandom Ordering <br> for a Memory Efficient Hash Table</a></h2>
 
-  <h2><a name="The best hash table">The best hash table</h3>
+  <h2><a name="The best hash table">The best hash table</a></h3>
   <p>
   You probably came here looking for the best hash table. A hash table is commonly used to associate keys with values to implement dictionaries or to test if a key is part of a set of keys to implement set operations. To achieve this the keys or key-value pairs are stored at a pseudorandom position determined first by a hash of the key and then either storing all the entries that map to the same position in a secondary data structure (this method is called chaining) or by a probing strategy to finds another position that is free. The first step creats a cache miss. A cache miss is when memory is requested from RAM, which is not in any of the caches of the CPU. The time this takes is around 300 CPU cycles and typically determines the performance of a hash table. This cannot be avoided due to the pseudorandom nature of hashing. The second step however occurs more frequently the fuller the table becomes, it is a function of the load factor α. The load factor is defined as the number of elements stored in the table divided by the total number of positions available in the table. Therefore, essentially, the largest table is also the fastest because it has to resolve the least collisions, leading to the least amount of cache misses.
   </p>
-  <h3><a name="Memory efficient associations">The most memory efficient datastructure for associations</h3>
+  <h3><a name="Memory efficient associations">The most memory efficient datastructure for associations</a></h3>
   <p>
   The most memory efficient data structure to store and access uniformly distributed integers is a sorted array. Using an interpolation search the values can be retrieved in log₂(log₂(n)). Note that this scales with n whereas lookups into a hash table do not scale with n. To have 100% memory efficiency with a hash table one would need to know a perfect hash function for the keys that we want to store in advance, which is not possible in general. Only then this hash table would still be able to retrieve keys in a time independent of the size of the hash table. We can however develop the sorted array into a hash table, more on that later.
   </p>
-  <h3><a name="The best space-time trade-off">The best trade-off between memory usage and speed</h3>
+  <h3><a name="The best space-time trade-off">The best trade-off between memory usage and speed</a></h3>
   <p>
   We realize that we are not looking for the fastest hash table or the most memory efficient, we are looking for the hash table that has the best trade-off between space and time. Asymptotically the best trade-off between space and time is the one that has the lowest product of the the two. Imagine building a big server that does nothing but search entries in a hash table. Say the hash table is very large so that the offset of the price for the CPU and the other hardware will be dwarfed by the cost of the RAM. The server will have a finite life-time, therefore the cost of a single lookup into the hash table will be directly proportional to the product of the time it takes to access an element and the amount of space the hash table needs per element. Let's call this concept the space-time.
   </p>
-  <h2><a name="The patchmap">The <tt>patchmap</tt></h2>
+  <h2><a name="The patchmap">The <tt>patchmap</tt> </a></h2>
   <p>
   The <tt>patchmap</tt> is my attempt at achieving this magical smallest space-time. Recently I was frustrated with the performance of <tt>std::unordered_map</tt> and before I could even test other hash tables I had come up with an idea of how to save space that I needed to try. Let's first look at how it compares, then at the algorithm, more about the motivation later.
   </p>
-  <h3><a name="Performance comparison">Performance compared to other hash tables</h3>
+  <h3><a name="Performance comparison">Performance compared to other hash tables</a></h3>
   <p>
   I designed a small benchmark to be as fair as possible. Only random keys can produce comparable memory access patterns across different hash table implementations using different hash functions and probing strategies. For the following benchmark 2²⁶ random 64 bit keys were associated with arbitrary 64 bit values. The average memory consumption and time for insertion, lookup and deletion per key-value pair can be found in the plots below for the different hash tables. I tested all hash tables that looked promising.
   </p>
+  <a name="Figure 1">
   <div class="flex-wrap-container">
   <div class="svg">
 <svg
@@ -1295,6 +1296,7 @@ blue { color: blue; }
   <br>
   </div>
   </div>
+  </a>
   <p>
   The best hash-table implementations define a lower bound of the best achievable space-time trade-off. I chose to fit c • ( 1+(α-1)¯¹   ) as this is the asymptotic complexity of double hashing, which is one of the best probing strategies and it seemed to fit well. Given this curve of achievable trade-offs we want to choose the one where the product of space and time requirement is the lowest. The solid black line indicates the line the hash table implementations need to be below on the plot of memory and speed if they want to beat the apparently achievable best space-time trade-off. Or in short, if a hash table is below the dotted line it is faster than most good hash tables for the given memory efficiency, if it is below the solid line it is more cost efficient than than what can be achieved with most good hash tables.
   </p>
@@ -1700,12 +1702,13 @@ blue { color: blue; }
   <p>
   Figure 2: Average cost for insertion and lookup in the <tt>patchmap</tt> as it is being filled up with 2²⁸ pseudo-random keys. Insertion (in red) shows a strongly quadratic behavior and the function 1+(α/(1-α)²+α)/4 is indicated with a solid black line. Lookup (in blue) is almost linear in α and shows a steep increase only for load factors close to 1. The theoretically derived complexity bound for lookup 1+log₂(log₂((2-α)/(2-2α))+1) is indicated with dashed black line.
   </p>
-  <h3><a name="Conclusion">Conclusion</h3>
+  <h3><a name="Conclusion">Conclusion</a></h3>
   <p>
-  The best space-time trade-off is achieved by <tt>F14ValueMap</tt> for all categories but successful lookups where the patchmap tuned to the lowest memory efficiency was able to beat it by a very small margin. As successful lookups are often the most prevalent map operations by far this difference could be relevant if it wasn't so tiny. Therefore Facebooks <tt>F14ValueMap</tt> is the overall best hash table implementation for 64 bit keys and values right now on my machine. But depending on your constraints you might want to use <tt>google::dense_hash_map</tt> if you want a fast hash table and can spare two special keys as a flag for deleted and free. If you want a fast hash table with higher memory efficiency you might want to take a look at <tt>bytell</tt> and especially <tt>patchmap</tt> if insertion and deletions are less frequent than lookups. The fastest hash table in the very high memory efficiency regime is <tt>google::sparse_hash_map</tt>, but it can be beat by using a hash table combining chaining, a very high load factor and pseudorandom ordering. A Judy array is good for medium to small datasets, but the asymptotic properties are catching up to it at 2²⁶ keys already. The <tt>std::unordered_map</tt> is forced to perform sub-par because the c++ standard requires all iterators except to elements that are directly deleted to stay valid for all hash table operations. This necessitates chaining instead of probing.
+  The best space-time trade-off is achieved by <tt>F14ValueMap</tt> for all categories but successful lookups where the patchmap tuned to the lowest memory efficiency was able to beat it by a very small margin. As successful lookups are often the most prevalent map operations by far this difference could be relevant if it wasn't so tiny. Therefore Facebooks <tt>F14ValueMap</tt> is the overall best hash table implementation for 64 bit keys and values right now on my machine. But depending on your constraints you might want to use <tt>google::dense_hash_map</tt> if you want a fast hash table and can spare two special keys as a flag for deleted and free. If you want a fast hash table with higher memory efficiency you might want to take a look at <tt>bytell</tt> and especially <tt>patchmap</tt> if insertion and deletions are less frequent than lookups. The fastest hash table in the very high memory efficiency regime is <tt>google::sparse_hash_map</tt>, but it can be beat by using a hash table combining chaining, a very high load factor and pseudorandom ordering, more on that <a href="#Competing with google::sparse_hash_map">here</a>. A Judy array is good for medium to small datasets, but the asymptotic properties are catching up to it at 2²⁶ keys already. The <tt>std::unordered_map</tt> is forced to perform sub-par because the c++ standard requires all iterators except to elements that are directly deleted to stay valid for all hash table operations. This necessitates chaining instead of probing.<br>
+  All in all this shows that pseudorandom ordering is an an interesting technique for achieving highly memory efficient hash tables, while also being competitive at lower memory efficiencies. Only below 50% memory efficiency overheads associated with this technique make it unsuitable, as collisions become the exception rather than the norm.
   </p>
   <div>
-  <h2><a name="The algorithm">The algorithm</h3>
+  <h2><a name="The algorithm">The algorithm</a></h3>
   <p>
   A sorted array is a compact data structure, it takes up just as much space as absolutely necessary. It also allows for relatively fast acceses on the order of O(log(log(n))) if the keys are uniformly distributed. Insertions and deletions end up being O(n). While this might be good or good enough for some applications, especially when the number of keys is small, it is not what we want from a hash table in general. There is no general compact data structure to my knowledge that allows asymptotically constant lookups, insertions and deletions, but what happens if we allow a sorted array to be more wasteful?
   </p>
@@ -1757,13 +1760,13 @@ mask&nbsp;&nbsp;...--+++++++--...<br>
   </div>
   </div>
 
-  <h3><a name="Competing with google::sparse_hash_map">Competing with <tt>google::sparse_hash_map</tt></h3>
+  <h3><a name="Competing with google::sparse_hash_map">Competing with <tt>google::sparse_hash_map</tt></a></h3>
   <p>
-  The <tt>patchmap</tt> achieves a good speed/space trade-off, but it cannot beat googles sparse hash map although the comparison to it and <tt>sparsepp</tt> seemed not even very fair in the first place. <tt>sparsepp</tt> and <tt>google::sparse_hash_map</tt> minimize the peak memory consumption instead of the average memory consumption. Each time the other hash tables (including the <tt>patchmap</tt>) have to grow they reserve a new contiguous block of memory, copy the values from the old table, that has become too small, into the new table, therefore taking up at least two times more memory during each grow operation. To make the comparison fair I used a hashed array tree to generate the point for the <tt>patchmap</tt> with the highest memory efficiency. A hashed array tree allows the hash table to grow virtually in place, similar to what realloc allows, but at some additional cost, however keeping non copy-constructible data intact. <br>
-  Still the <tt>patchmap</tt> performs worse at the high memory efficiency that <tt>google::sparse_hash_map</tt> achieves for 64-bit keys.<br>
-  This is because at high load factors large patches have a very much increased probability of growing bigger because they occupy more positions in the array where values are being mapped to randomly, leading to an asymptotically quadratic behavior. If we really want to beat <tt>google::sparse_hash_map</tt> for memory efficiency we can work around that and instead make a chaining hash table. Entries that hash to the same hash value are going to be stored in a single contiguous array which is being sorted by another hash value. Chaining makes the distribution of the sorted patches more even, as there is no feedback mechanism at work. Interpolation search gives very fast access times and the memory overhead is very little if these arrays are large. At a load factor between 64 and 128 the memory efficiency of <tt>google::sparse_hash_map</tt> can be beat, while not giving up on performance completely.
+  The <tt>patchmap</tt> achieves a good speed/space trade-off, but it cannot beat googles sparse hash map at very high memory efficiency although the comparison to it and <tt>sparsepp</tt> seemed not even very fair in the first place. <tt>sparsepp</tt> and <tt>google::sparse_hash_map</tt> minimize the peak memory consumption instead of the average memory consumption. Each time the other hash tables (including the <tt>patchmap</tt>) have to grow they reserve a new contiguous block of memory, copy the values from the old table, that has become too small, into the new table, therefore taking up at least two times more memory during each grow operation. To make the comparison fair I used a hashed array tree to generate the point for the <tt>patchmap</tt> with the highest memory efficiency. A hashed array tree allows the hash table to grow virtually in place, similar to what realloc allows, but at some additional cost, however keeping non copy-constructible data intact. <br>
+  Still the <tt>patchmap</tt> performs worse at the memory efficiency that <tt>google::sparse_hash_map</tt> achieves for 64-bit keys.<br>
+  This is because at high load factors large patches have a very much increased probability of growing bigger because they occupy more positions in the array where values are being mapped to randomly, leading to an asymptotically quadratic behavior. If we really want to beat <tt>google::sparse_hash_map</tt> for memory efficiency we can work around that and instead make a chaining hash table. Entries that hash to the same hash value are going to be stored in a single contiguous array which is being sorted by another hash value, again using the pseudorandom ordering trick. Chaining makes the distribution of the sorted patches more even, as there is no feedback mechanism at work. Interpolation search gives very fast access times and the memory overhead is very little if these arrays are large. At a load factor between 64 and 128 the memory efficiency of <tt>google::sparse_hash_map</tt> can be beat, while not giving up on performance completely, see the blue dot in <a href="#Figure 1">figure 1</a>.
   </p>
-  <h3><a name="Tombstones and zombies">Tombstones can make things faster but they also create zombies</h3>
+  <h3><a name="Tombstones and zombies">Tombstones can make things faster but they also create zombies</a></h3>
   <p>
   The <tt>patchmap</tt> seems to fare worst in comparison to the other hash tables for deletions. This is probably because I went a different route there. Usually when deleting an element from a hash table elements are not actually removed from the table, they are only marked as deleted. This technique is known as tombstoning. It is done mostly because this is the fastest way to delete elements, but also because the other ways often are much harder to implement. This is not the case in the <tt>patchmap</tt>. There deleting works just like insertion, but in reverse. Deleted but not dead entries, let&#39;s call them zombie entries, can accumulate and if we don&#39;t pay close attention they can take over the table. Such a worst case scenario can be triggered by repeatedly inserting and deleting elements while keeping the table at the same size. Some implementation are immune and others have taken specific precautions to mitigate this issue, usually by rehashing the table as soon as the zombies accumulate too much. This usage pattern or others that generate many zombies are unusual but not impossible, therefore a small to medium slowdown is perfectly acceptable, a severe slowdown might however become an unforeseen problem at some point.
   </p>
@@ -2403,7 +2406,7 @@ AElFTkSuQmCC" style="margin-right:2em;min-width:200px;"/>
   <h3>How to make a good hash function?</h3>
   <p>I had been thinking about <a href="https://stackoverflow.com/questions/35985960/c-why-is-boosthash-combine-the-best-way-to-combine-hash-values/50978188#50978188" target="_blank">good hash functions</a> for a long time so it was not hard to combine two multiplications and a binary rotation to get a hash function that had a very even output. This is similar to what Malte Skarupke ended up doing starting with a single multiplication with the golden ratio, aka <a href="https://probablydance.com/2018/06/16/fibonacci-hashing-the-optimization-that-the-world-forgot-or-a-better-alternative-to-integer-modulo/" target="_blank">fibonacci hashing</a> and composing it with a bitshift. Galois Field multiplications are a great building block too, but my laptop is a little old and therefore struggles with carry-less multiplications.
   </p>
-  <h3><a name="The backstory"> The backstory</h3>
+  <h3><a name="The backstory"> The backstory</a></h3>
   <p>
   Recently I wanted to compute a large number of large histograms. The fastest way of computing histograms involves hash tables. As c++ is my favorite programming language I had chosen <tt>std::unordered_map</tt> as the backend. Everything was going smoothly just as I had imagined but then when I was running the code on my laptop instead of the servers at my institute everything froze. The memory required was around 8 times of what I had anticipated. It turns out I was triggering close to the worst case for the <tt>std::unordered_map</tt> as I was mapping 16-bit values to 16-bit values on a 64-bit machine. The <tt>std::unordered_map</tt> is a chaining hash table which means that for each pair of 16-bit values it needs to store a 64-bit pointer, this creates an especially large overhead in this case. I ended up sorting the values first and then computing the histograms from the sorted arrays, which takes much longer, but uses the minimum amount of memory. But I still had more memory available, I was just using 6 GB out of the 16 GB I had in my laptop. Would it not be great if there was a data structure that could interpolate between the two solutions? Or at least if there was a hash table that was more memory efficient?
   </p>
@@ -2411,23 +2414,23 @@ AElFTkSuQmCC" style="margin-right:2em;min-width:200px;"/>
   And before I even found out that there were indeed hash tables that are way more efficient I had an idea that I needed to try.
   </p>
   <p>
-  The idea is as has been hinted at to interpolate between a sorted array and a hash table. That is mapping the keys linearly to the hash table and resolving collisions based on the numerical value of the key should they occur. This works well if the keys are uniformly distributed and in this case has the added effect of essentially sorting the keys in O(1) time and O(1) memory, not in place however as for this to work there is some fractional extra space needed, at least 5% extra would be good.
+  The idea is as has been hinted at to interpolate between a sorted array and a hash table. That is mapping the keys linearly to the hash table and resolving collisions based on the numerical value of the key should they occur. This works well if the keys are uniformly distributed and in this case has the added effect of essentially sorting the keys in O(1) time and O(1) memory, not in place however as for this to work efficiently there is some fractional extra space needed, at least 5% extra would be good.
   </p>
-  <h3><a name="Comparing to other approaches">Comparing to other approaches</h3>
+  <h3><a name="Comparing to other approaches">Comparing to other approaches</a></h3>
   <p>
   This approach might look very similar to the one suggested in &quot;<a href="https://doi.org/10.1093/comjnl/17.2.135" target="_blank">Ordered Hash Tables</a>&quot; (01 January 1974) O. Amble  D. E. Knuth but there is a mayor difference in that the hash tables there are ordered first by the hash of the keys and then by the value of the key. If the entries are however only ordered by the hash value there exists a global order, which all of a sudden allows advanced search strategies like interpolation search and binary search.
   </p>
   <p>
   In fact the approach is much more similar to robin hood hashing with linear probing because if two keys collide at the same position the key whose hash value is lower will also have been displaced more and will therefore displace the key with the larger hash value, therefore keeping up the same order. There has however been no hash table using robin hood hashing with linear probing that takes advantage of this fact.
   </p>
-  <h3><a name="Availability">Availability</h3>
+  <h3><a name="Availability">Availability</a></h3>
   <p>
   <a href="https://github.com/1ykos/ordered_patch_map" target="_blank">https://github.com/1ykos/ordered_patch_map</a>
   </p>
   <p>
   [ C++17, open source, beta stadium, let me know if you want to use it, I will try to make it work for you! ]
   </p>
-  <h3><a name="Publication">Publication</h3>
+  <h3><a name="Publication">Publication</a></h3>
   <p>
   For a more detailed description of the inner workings of the <tt>patchmap</tt> you can have a look at (open-access):
   </p>
