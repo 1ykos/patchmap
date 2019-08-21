@@ -401,6 +401,7 @@ namespace wmath{
         assert(!is_set(j));
         set(j);
         //data[i].first = key;
+        //data[j] = value_type();
         ++num_data;
         size_type i = j;
         while(true){
@@ -474,6 +475,7 @@ namespace wmath{
             else return ~size_type(0);
           }
         }
+        return ~size_type(0);
       }
       
       size_type inline interpol(
@@ -605,14 +607,108 @@ namespace wmath{
         } else {
           if (mi<mok){
             if (mi+1<hi) return find_node_interpol_v2(k,hk,ok,mok,mi+1,hi-1,i+1);
-            else       return ~size_type(0);
+            else         return ~size_type(0);
           }
           if (mi>mok){
             if (mi>lo+1) return find_node_interpol_v2(k,hk,ok,mok,lo+1,mi-1,i+1);
-            else       return ~size_type(0);
+            else         return ~size_type(0);
           }
           return ~size_type(0);
         }
+      }
+      
+      size_type inline find_node_interpol_v3(
+        const  key_type&   k,
+        const hash_type&  hk,
+        const hash_type&  ok,
+        const size_type& mok,
+              size_type   lo,
+              hash_type  olo,
+              bool is_set_lo,
+              size_type   hi,
+              size_type  ohi,
+              bool is_set_hi
+          ) const {
+        assert(lo<=hi||datasize==0);
+        size_type mi;
+        while(true) {
+          if (!(lo<hi)) return ~size_type(0);
+          if (hi-lo<2) {
+            if (is_set_lo&&is_set_hi) return ~size_type(0);
+            if (is_set(lo)) if (equator(k,data[lo].first)) return lo;
+            if (is_set(hi)) if (equator(k,data[hi].first)) return hi;
+            return ~size_type(0);
+          }
+          if (hi-lo<8) {
+            if (is_set_hi && is_set_lo) {
+              mi = lo + ((hi-lo)>>1);
+            } else if (is_set_lo) {
+              mi = lo + ((hi-lo+2)>>2);
+            } else if (is_set_hi) {
+              mi = hi - ((hi-lo+2)>>2);
+            } else {
+              return ~size_type(0);
+            }
+          } else {
+            if (is_set_hi && is_set_lo) {
+              mi = interpol(ok,olo,ohi,lo,hi);
+            } else if (is_set_lo) {
+              const size_type st = map_diff(ok,olo);
+              mi = lo+st<hi?lo+st:hi;
+            } else if (is_set_hi) {
+              const size_type st = map_diff(ohi,ok);
+              mi = lo+st<hi?hi-st:lo;
+            } else {
+              return ~size_type(0);
+            }
+            mi = clip(mi,lo+1,hi-1);
+          }
+          if (!is_set(mi)) {
+            if (mi<mok) {
+              lo = mi;
+              is_set_lo=false;
+              continue;
+            }
+            if (mi>mok) {
+              hi = mi;
+              is_set_hi=false;
+              continue;
+            }
+            return ~size_type(0);
+          }
+          if (equator(k,data[mi].first)) return mi;
+          const hash_type omi = order(data[mi].first);
+          if (ok<omi) {
+            hi = mi;
+            ohi = omi;
+            is_set_hi = true;
+            continue;
+          }
+          if (ok>omi) {
+            lo = mi;
+            olo = omi;
+            is_set_lo = true;
+            continue;
+          }
+          if constexpr (is_injective<hash>::value) {
+            return ~size_type(0);
+          } else {
+            if (k<data[mi].first) {
+              hi = mi;
+              ohi = omi;
+              is_set_hi = true;
+              continue;
+            }
+            if (k>data[mi].first) {
+              lo = mi;
+              olo = omi;
+              is_set_lo = true;
+              continue;
+            }
+          }
+          return ~size_type(0);
+        }
+        return ~size_t(0);
       }
 
       size_type inline find_node_interpol(
@@ -739,6 +835,35 @@ namespace wmath{
       }
 
       size_type inline find_node(
+          const key_type &  k,
+          const hash_type& hk,
+          const hash_type& ok,
+          const size_type& mok)
+        const {
+#ifdef PATCHMAP_STAT
+        recursion_depth=0;
+#endif
+        assert((mok<datasize)||(datasize==0));
+        if (datasize==0) return ~size_type(0);
+        if (!is_set(mok)) return ~size_type(0);
+        if (equator(data[mok].first,k)) return mok;
+        const hash_type omi = order(data[mok].first);
+        if (omi<ok) {
+          return find_node_interpol_v3(k,hk,ok,mok,
+              mok       ,omi          ,true ,
+              datasize-1,~size_type(0),false);
+          /*if (i<datasize) cout << map_diff(ok,omi) << " " << i-mok << endl;
+          return i;*/
+        } else {
+          return find_node_interpol_v3(k,hk,ok,mok,
+              0         ,0            ,false,
+              mok       ,          omi,true );
+          /*if (i<datasize) cout << map_diff(omi,ok) << " " << mok-i << endl;
+          return i;*/
+        }
+      }
+
+      size_type inline find_node_old(
           const key_type &  k,
           const hash_type& hk,
           const hash_type& ok,
@@ -882,9 +1007,12 @@ namespace wmath{
           const size_type i = n/digits<size_type>();
           const size_type j = n%digits<size_type>();
           if (old_mask[i]&(size_type(1)<<(digits<size_type>()-j-1))){
-            //const size_type l = n*datasize/old_datasize;
-            const size_type l = reserve_node(old_data[n].first);
-            data[l] = old_data[n];
+            const key_type key = old_data[n].first;
+            const size_type l = reserve_node(key);
+            allocator_traits<alloc>::construct(allocator,data+l,old_data[n]);
+            //data[l] = value_type();
+            //const auto tmp = old_data[n];
+            //data[l] = tmp;
             set(l);
           }
         }
@@ -1047,6 +1175,7 @@ namespace wmath{
           const hash_type& ok,
           const size_type& hint){
         size_type i = find_node(k,hk,ok,hint);
+        const size_type mok = map(ok);
         if (i>=datasize) return 0;
         //cout << "erasing " << wmath::frac(ok) << endl;
         //cout << "found at " << i << endl;
@@ -1068,6 +1197,7 @@ namespace wmath{
           }
         }
         unset(i);
+        data[i]=value_type();
         //cout << "unset position " << i << endl;
         //cout << k << " " << data[i].first << endl;
         --num_data;
@@ -1108,7 +1238,7 @@ namespace wmath{
         if constexpr (!is_same<
             alloc,
             boost::container::allocator<std::pair<key_type,mapped_type>,2>
-            >::value){
+            >::value) {
           resize_out_of_place(n);
           return;
         }
@@ -1258,8 +1388,8 @@ namespace wmath{
         resize(nextsize);
       }
       _mapped_type& operator[](const key_type& k){
-        if (VERBOSE_PATCHMAP)
-          cerr << "operator[] " << k << endl;
+        /*if (VERBOSE_PATCHMAP)
+          cerr << "operator[] " << k << endl;*/
         const size_type i = find_node(k);
         if (VERBOSE_PATCHMAP)
           cerr << "i = " << i << endl; 
@@ -1273,6 +1403,8 @@ namespace wmath{
         const size_type j = reserve_node(k);
         if (VERBOSE_PATCHMAP)
           cerr << "j = " << j << endl;
+        //data[j].first = k;
+        //data[j] = value_type();
         if constexpr (is_same<void,mapped_type>::value) {
           allocator_traits<alloc>::construct(allocator,data+j,k,wmath::empty());
         } else {
@@ -1298,9 +1430,9 @@ namespace wmath{
         return const_noconst_at(*this,k);
       }
       size_type const inline count(const key_type& k) const {
-        if (VERBOSE_PATCHMAP)
-          cerr << k << " " << find_node_bruteforce(k) << " "
-               << find_node(k) << " " << datasize << endl;
+        //if (VERBOSE_PATCHMAP)
+        //  cerr << k << " " << find_node_bruteforce(k) << " "
+        //       << find_node(k) << " " << datasize << endl;
         //assert(check_ordering());
         //assert(find_node(k)==find_node_bruteforce(k));
         return (find_node(k)<datasize);
@@ -1927,6 +2059,38 @@ namespace wmath{
           >
   using static_patchmap =
     ordered_patch_map<key_type,mapped_type,hash,equal,comp,alloc,false>;
+  
+  template<class key_type    = int,  // int is the default, why not
+           class mapped_type = int,  // int is the default, why not
+           class hash        = hash_functor<key_type>,
+           class equal       = std::equal_to<key_type>,
+           class comp        = typename conditional<is_injective<hash>::value,
+                                                    dummy_comp<key_type>,
+                                                    std::less<key_type>>::type,
+           class alloc       = typename boost::container::allocator<
+             typename conditional<
+               std::is_same<mapped_type,void>::value,
+               std::pair<key_type,empty>,
+               std::pair<key_type,mapped_type>
+             >::type,2>
+          >
+  using unordered_map =
+    ordered_patch_map<key_type,mapped_type,hash,equal,alloc,comp,true>;
+  
+  template<class key_type    = int,  // int is the default, why not
+           class hash        = hash_functor<key_type>,
+           class equal       = std::equal_to<key_type>,
+           class comp        = typename conditional<is_injective<hash>::value,
+                                                    dummy_comp<key_type>,
+                                                    std::less<key_type>>::type,
+           class alloc       =
+             typename boost::container::allocator
+             <
+               std::pair<key_type,empty>,2
+             >
+          >
+  using unordered_set =
+    ordered_patch_map<key_type,void,hash,equal,alloc,comp,true>;
   
 }
 
