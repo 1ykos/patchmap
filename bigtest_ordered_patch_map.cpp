@@ -7,6 +7,8 @@
 #include <random>
 #include <unordered_map>
 #include "ordered_patch_map.hpp"
+//#include "doubling_patchmap.hpp"
+#include "robin_map.hpp"
 
 using wmath::ordered_patch_map;
 using wmath::reflect;
@@ -23,19 +25,29 @@ using std::get;
 using std::allocator_traits;
 
 uint32_t gen_rand(uint32_t i){
-  return i*2694261069ull;
-  return wmath::rol(i*3063032679ull,13)*2694261069ull;
+  return wmath::clmul_mod(uint32_t(i*3061963241ul),uint32_t(3107070805ul));
+  return wmath::rol(uint32_t(i*3063032679ull),13)*2694261069ull;
 }
 
 int main(){
-  const uint32_t N = 1u<<27;
   std::minstd_rand mr;
-  ordered_patch_map<uint32_t,uint32_t> test;
+  ordered_patch_map<uint32_t,void> test;
+  //static_patchmap<uint32_t,void> test(11u<<29);
+  //wmath::robin_map<uint32_t,uint32_t> test;
   //std::unordered_map<uint32_t,uint32_t> test;
   cout << "sizeof(ordered_patch_map{}) = " << sizeof(test) << endl;
-  for (uint32_t i=0;i!=N;++i){
+  for (uint32_t i=0;i!=1u<<30;++i){
     const uint32_t j = gen_rand(i);
-    test[j]=i;
+    test[j];
+    //cout << j << endl;
+    if (test.count(j)==0) {
+      //test.print();
+      cout << "could not retrieve key that should be there (before erase)" << endl;
+      cout << wmath::frac(wmath::distribute(j)) << endl;
+      return 1;
+    }
+    test.erase(j);
+    test[j];
     std::uniform_int_distribution<uint32_t> u32distr1(0,i);
     const uint32_t k = gen_rand(u32distr1(mr));
     if (test.count(k)==0) {
@@ -51,6 +63,11 @@ int main(){
       cout << l << " " << wmath::frac(wmath::distribute(k)) << endl;
       return 1;
     }
+    if (wmath::popcount(i)==1) if (test.test_size()!=test.size()){
+      cout << "lost keys :( " << endl;
+      return 1;
+    }
+    if (i==~uint32_t(0)) break;
   }
   /*
   if (!test.check_ordering()){
