@@ -13,6 +13,15 @@
 #endif
 //#include "doubling_patchmap.hpp"
 //#include "unordered_map.hpp"
+#ifdef ABSL
+#include <absl/container/flat_hash_map.h>
+#endif
+#ifdef KTPRIME
+#include "hash_table5.hpp"
+#endif
+#ifdef TSL
+#include "sparse_map.h"
+#endif
 #ifdef SPARSE_PATCHMAP
 #include "sparse_patchmap.hpp"
 #endif
@@ -34,13 +43,29 @@
 #ifdef KHASH
 #include "khash.h"
 #endif
+#ifdef WMAP
+#include "wmath_unordered_map.hpp"
+#endif
+#ifdef JUDY
+#include <Judy.h>
+#endif
+#ifdef F14
+#include "folly/container/F14Map.h"
+#endif
+#include "wmath"
+#ifdef WHASH
+#include "whash.h"
+#endif
+#ifdef SPARSE
+#include "sparse.hpp"
+#endif
+#ifdef ROBINMAP
 #include "robin_hood.h"
-#include "robin_map.hpp"
+#endif
 
 #include <stdio.h>
 #include <proc/readproc.h>
 
-//using wmath::ordered_patch_map;
 using wmath::reflect;
 using wmath::rol;
 using wmath::ror;
@@ -54,13 +79,13 @@ using std::stoi;
 using std::max;
 
 #ifdef KHASH
-KHASH_MAP_INIT_INT(32, uint32_t)
+KHASH_MAP_INIT_INT64(64, uint64_t)
 #endif
 
-uint32_t gen_rand(uint32_t i){
-  //return i;
-  //return wmath::rol(i*uint32_t(3061963241ul),16)*uint32_t(3107070805ul);
-  return wmath::clmul_mod(uint32_t(i*3061963241ul),uint32_t(3107070805ul));
+uint64_t gen_rand(uint64_t i) {
+  return wmath::clmul_mod(
+      uint64_t(i*8593922412848152131ull),
+      uint64_t( 16647681018011545579ull));
 }
 
 int main(int argc, char** argv){
@@ -69,7 +94,6 @@ int main(int argc, char** argv){
   const size_t N = stoi(argv[1]);
   std::random_device urand;
   std::minstd_rand mr(urand());
-  std::uniform_int_distribution<uint32_t> u32distr(1u<<30);
   double initial_memory;
   {
     struct proc_t usage;
@@ -86,45 +110,69 @@ int main(int argc, char** argv){
     base_time = std::clock()-start;
     base_time/=N;
   }
+#ifdef ABSL
+  absl::flat_hash_map<uint64_t,uint64_t> test;
+#endif
+#ifdef KTPRIME
+  emilib2::HashMap<uint64_t,uint64_t> test;
+#endif
+#ifdef TSL
+  tsl::sparse_map<uint64_t,uint64_t> test;
+#endif
 #ifdef PATCHMAP
-  wmath::ordered_patch_map<uint32_t,uint32_t> test;
+  wmath::ordered_patch_map<uint64_t,uint64_t> test;
 #endif
 #ifdef SPARSE_PATCHMAP
-  wmath::sparse_patchmap<uint32_t,uint32_t> test;
+  wmath::sparse_patchmap<uint64_t,uint64_t> test;
 #endif
 #ifdef WMATH_ROBIN_MAP
-  wmath::robin_map<uint32_t,uint32_t> test;
+  wmath::robin_map<uint64_t,uint64_t> test;
 #endif
 #ifdef ROBINMAP
-  robin_hood::unordered_map<uint32_t,uint32_t> test;
+  robin_hood::unordered_map<uint64_t,uint64_t> test;
 #endif
 #ifdef SPARSEPP
-  spp::sparse_hash_map<uint32_t,uint32_t> test;
+  spp::sparse_hash_map<uint64_t,uint64_t> test;
 #endif
 #ifdef UNORDERED_MAP
-  std::unordered_map<uint32_t,uint32_t> test;
+  std::unordered_map<uint64_t,uint64_t> test;
 #endif
 #ifdef MAP
-  std::map<size_t,size_t> test;
+  std::map<uint64_t,uint64_t> test;
 #endif
 #ifdef FLATMAP
-  ska::flat_hash_map<uint32_t,uint32_t> test;
+  ska::flat_hash_map<uint64_t,uint64_t> test;
 #endif
 #ifdef BYTELL
-  ska::bytell_hash_map<uint32_t,uint32_t> test;
+  ska::bytell_hash_map<uint64_t,uint64_t> test;
 #endif
 #ifdef SPARSEMAP
-  google::sparse_hash_map<uint32_t,uint32_t> test;
+  google::sparse_hash_map<uint64_t,uint64_t> test;
 #endif
 #ifdef DENSEMAP
-  google::dense_hash_map<uint32_t,uint32_t> test;
+  google::dense_hash_map<uint64_t,uint64_t> test;
   test.set_empty_key(0);
-  test.set_deleted_key(~uint32_t(0));
+  test.set_deleted_key(~uint64_t(0));
 #endif
 #ifdef KHASH
-  khash_t(32) *h = kh_init(32);
+  khash_t(64) *h = kh_init(64);
   int ret, is_missing;
   khiter_t k;
+#endif
+#ifdef WMAP
+  wmath::unordered_map<uint64_t,uint64_t> test;
+#endif
+#ifdef JUDY
+  void *j_array = nullptr;
+#endif
+#ifdef F14
+  folly::F14ValueMap<uint64_t,uint64_t> test;
+#endif
+#ifdef WHASH
+  struct hash_table test;
+#endif
+#ifdef SPARSE
+  wmath::sparse_map<uint64_t,uint64_t> test;
 #endif
   std::uniform_int_distribution<size_t> distr;
   double counter = 0;
@@ -138,13 +186,19 @@ int main(int argc, char** argv){
   double typical_not_find_time = 0;
   double typical_memory = 0;
   auto start = std::clock();
-  for (size_t i=0;i!=N/4096;++i) {
+  for (uint64_t i=0;i!=N/4096;++i) {
     auto start = std::clock();
-    for (size_t j=0;j!=4096;++j) {
-      const uint32_t n = gen_rand(2*(i*4096+j));
+    for (uint64_t j=0;j!=4096;++j) {
+      const uint64_t n = gen_rand(uint64_t(2*(i*4096+j)));
 #ifdef KHASH
-      k = kh_put(32, h, n, &ret);
+      k = kh_put(64, h, n, &ret);
       kh_value(h, k) = n;
+#elif JUDY
+      void* pvalue;
+      JLI(pvalue,j_array,n);
+      *reinterpret_cast<size_t*>(pvalue) = n;
+#elif WHASH
+      insert_into_hash_table(&n,&n,&test);
 #else
       test[n]=n;
 #endif
@@ -158,10 +212,16 @@ int main(int argc, char** argv){
     const size_t l0 = distr(mr);
     start = std::clock();
     for (size_t j=0;j!=4096;++j) {
-      const uint32_t n = gen_rand(2*(l0*4096+j));
+      const uint64_t n = gen_rand(uint64_t(2*(i*4096+j)));
 #ifdef KHASH
-      k = kh_get(32, h, n);
+      k = kh_get(64, h, n);
       sand += k;
+#elif JUDY
+      void* pvalue;
+      JLG(pvalue,j_array,n);
+      sand+=*reinterpret_cast<uint64_t*>(pvalue);
+#elif WHASH
+      sand+=(get_from_hash_table(&n,&test)!=NULL);
 #else
       sand+=test.count(n);
 #endif
@@ -170,36 +230,54 @@ int main(int argc, char** argv){
     const size_t l1 = distr(mr);
     start = std::clock();
     for (size_t j=0;j!=4096;++j) {
-      const uint32_t n = gen_rand(2*(l1*4096+j)+1);
+      const uint64_t n = gen_rand(uint64_t(2*(i*4096+j)));
 #ifdef KHASH
-      k = kh_get(32, h, n);
+      k = kh_get(64, h, n);
       sand += k;
+#elif JUDY
+      void* pvalue;
+      JLG(pvalue,j_array,n);
+      sand+=(pvalue!=NULL);
+#elif WHASH
+      sand+=(get_from_hash_table(&n,&test)!=NULL);
 #else
       sand+=test.count(n);
 #endif
     }
     typical_not_find_time+=(acc_not_find+=(std::clock()-start-base_time))/(i+1);
-    const size_t l2 = distr(mr);
+    //const size_t l2 = distr(mr);
     start = std::clock();
     for (size_t j=0;j!=4096;++j){
-      const uint32_t n = gen_rand(2*(l2*4096+j));
+      const uint64_t n = gen_rand(uint64_t(2*(i*4096+j)));
 #ifdef KHASH
-      k = kh_get(32, h, n);
-      if (k!=kh_end(h)) kh_del(32, h, k);
+      k = kh_get(64, h, n);
+      if (k!=kh_end(h)) kh_del(64, h, k);
+#elif JUDY
+      int ret;
+      JLD(ret,j_array,n);
+#elif WHASH
+      del_from_hash_table(&n,&test);
 #else
       test.erase(n);
 #endif
     }
     typical_delete_time+=(acc_delete+=(std::clock()-start-base_time))/(i+1);
     for (size_t j=0;j!=4096;++j){
-      const uint32_t n = gen_rand(2*(l2*4096+j));
+      const uint64_t n = gen_rand(uint64_t(2*(i*4096+j)));
 #ifdef KHASH
-      k = kh_put(32, h, n, &ret);
+      k = kh_put(64, h, n, &ret);
       kh_value(h, k) = n;
+#elif JUDY
+      void* pvalue;
+      JLI(pvalue,j_array,n);
+      *reinterpret_cast<size_t*>(pvalue) = n;
+#elif WHASH
+      insert_into_hash_table(&n,&n,&test);
 #else
       test[n]=n;
-#endif      
+#endif
     }
+    //cout << i*4096 << " " << num_set << " " << test.num_elem << endl;
     if ((size_t(1)<<wmath::log2(i))==i) {
       cout << typical_memory/(i*4096)        << " "
            << typical_insert_time/(i*4096)   << " "
@@ -214,13 +292,21 @@ int main(int argc, char** argv){
        << typical_find_time/N     << " "
        << typical_not_find_time/N << endl;
 #ifdef KHASH
-  kh_destroy(32, h);
+  kh_destroy(64, h);
 #endif
 //#ifdef PATCHMAP
 //  std::cerr << test.size() << " " << test.test_size() << endl;
 //#endif
-#ifdef UNORDERED_MAP
+#ifdef JUDY
+  //size_t rcword;
+  //JLC(rcword,j_array,0,~size_t(0));
+  //cout << rcword << endl;
+#endif
+#ifdef WMAP
   std::cerr << test.size() << endl;
+#endif
+#ifdef WHASH
+  free_hash_table(&test);
 #endif
   return sand;
 }
