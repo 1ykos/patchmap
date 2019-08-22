@@ -490,330 +490,133 @@ namespace wmath{
         }
       }
       
-      size_type inline find_node_interpol_v2(
-        const  key_type&   k,
-        const hash_type&  hk,
-        const hash_type&  ok,
-        const size_type& mok,
-        const size_type&  lo,
-        const size_type&  hi,
-        const size_type&   i
-          ) const {
-        //return find_node_binary(k,ok,lo,hi);
-        assert(lo<=hi||datasize==0);
-        //cout << lo << " " << mok << " " << hi << endl;
-        const size_type d = hi-lo;
-        //if (d<4) return find_node_linear(k,lo,hi);
-        if (d==0) {
-          if (is_set(lo)) if (equator(data[lo].first,k)) return lo;
-          return ~size_type(0);
-        }
-#ifdef PATCHMAP_STAT
-        ++recursion_depth;
-#endif
-        if (i>2*log2(datasize+1)) return find_node_binary(k,ok,lo,hi);
-        const bool is_set_lo = is_set(lo);
-        const bool is_set_hi = is_set(hi);
-        hash_type olo,ohi;
-        if (is_set_lo) {
-          if (equator(data[lo].first,k)) return lo;
-          olo = order(data[lo].first);
-          if ( ok<olo) return ~size_type(0);
-        } else {
-          if (mok<=lo) return ~size_type(0);
-        }
-        if (is_set_hi) {
-          if (equator(data[hi].first,k)) return hi;
-          ohi = order(data[hi].first);
-          if ( ok>ohi) return ~size_type(0);
-        } else {
-          if (mok>=hi) return ~size_type(0);
-        }
-        switch(d) {
-          case 1:
-            return ~size_type(0);
-          case 2:
-            if (is_set(lo+1)) if (equator(data[lo+1].first,k)) return lo+1;
-            return ~size_type(0);
-          default:
-            break;
-        }
-        size_type mi;
-        switch(is_set_lo+2*is_set_hi){
-          case 3:
-            mi = clip(interpol(ok,olo,ohi,lo,hi),lo+1,hi-1);
-            break;
-          case 2:
-            {
-            const size_type st = map_diff(ohi,ok)+1;
-            mi = lo+st<hi?hi-st:lo+1;
-            break;
-            }
-          case 1:
-            {
-            const size_type st = map_diff(ok,olo)+1;
-            mi = lo+st<hi?lo+st:hi-1;
-            break;
-            }
-          case 0:
-            return ~size_type(0);
-        }
-        //mi = mi>hi?hi:mi<lo?lo:mi;
-        assert(mi<=hi);
-        assert(mi>=lo);
-        if (is_set(mi)) {
-          if (equator(data[mi].first,k)) return mi;
-          if constexpr (!is_injective<hash>::value) {
-            if (hasher(data[mi].first)==hk) {
-              if (comparator(data[mi].first,k)){
-                if (mi+1<hi)
-                  return find_node_interpol_v2(k,hk,ok,mok,mi+1,hi-1,i+1);
-                else
-                  return ~size_type(0);
-              } else {
-                if (mi>lo+1)
-                  return find_node_interpol_v2(k,hk,ok,mok,lo+1,mi-1,i+1);
-                else
-                  return ~size_type(0); 
-              }
-            }
-          }
-          if (order(data[mi].first)<ok){
-            if (mi+1<hi) return find_node_interpol_v2(k,hk,ok,mok,mi+1,hi-1,i+1);
-            else         return ~size_type(0);
-          } else {
-            if (mi>lo+1) return find_node_interpol_v2(k,hk,ok,mok,lo+1,mi-1,i+1);
-            else         return ~size_type(0);
-          }
-        } else {
-          if (mi<mok){
-            if (mi+1<hi) return find_node_interpol_v2(k,hk,ok,mok,mi+1,hi-1,i+1);
-            else       return ~size_type(0);
-          }
-          if (mi>mok){
-            if (mi>lo+1) return find_node_interpol_v2(k,hk,ok,mok,lo+1,mi-1,i+1);
-            else       return ~size_type(0);
-          }
-          return ~size_type(0);
-        }
-      }
-
       size_type inline find_node_interpol(
         const  key_type&   k,
-        const hash_type&  hk,
         const hash_type&  ok,
         const size_type& mok,
-        const size_type&  lo,
-        const size_type&  hi,
-        const size_type&   i
+              size_type   lo,
+              hash_type  olo,
+              bool is_set_lo,
+              size_type   hi,
+              size_type  ohi,
+              bool is_set_hi
           ) const {
-        //return find_node_binary(k,ok,lo,hi);
         assert(lo<=hi||datasize==0);
-        //cout << lo << " " << mok << " " << hi << endl;
-        size_type mi,d,l,id,od;
-        d  = hi-lo;
-        if (d==0) {
-          if (is_set(lo)) {
-            if (equator(data[lo].first,k)) return lo;
+        size_type mi;
+        while(true) {
+          if (!(lo<hi)) return ~size_type(0);
+#ifdef PATCHMAP_STAT
+          ++recursion_depth;
+#endif
+          if (hi-lo<2) {
+            if (is_set_lo&&is_set_hi) return ~size_type(0);
+            if (is_set(lo)) if (equator(k,data[lo].first)) return lo;
+            if (is_set(hi)) if (equator(k,data[hi].first)) return hi;
+            return ~size_type(0);
+          }
+          if (hi-lo<8) {
+            if (is_set_hi && is_set_lo) {
+              mi = lo + ((hi-lo)>>1);
+            } else if (is_set_lo) {
+              mi = lo + ((hi-lo+2)>>2);
+            } else if (is_set_hi) {
+              mi = hi - ((hi-lo+2)>>2);
+            } else {
+              return ~size_type(0);
+            }
+          } else {
+            if (is_set_hi && is_set_lo) {
+              mi = interpol(ok,olo,ohi,lo,hi);
+            } else if (is_set_lo) {
+              const size_type st = map_diff(ok,olo);
+              mi = lo+st<hi?lo+st:hi;
+            } else if (is_set_hi) {
+              const size_type st = map_diff(ohi,ok);
+              mi = lo+st<hi?hi-st:lo;
+            } else {
+              return ~size_type(0);
+            }
+            mi = clip(mi,lo+1,hi-1);
+          }
+          if (!is_set(mi)) {
+            if (mi<mok) {
+              lo = mi;
+              is_set_lo=false;
+              continue;
+            }
+            if (mi>mok) {
+              hi = mi;
+              is_set_hi=false;
+              continue;
+            }
+            return ~size_type(0);
+          }
+          if (equator(k,data[mi].first)) return mi;
+          const hash_type omi = order(data[mi].first);
+          if (ok<omi) {
+            hi = mi;
+            ohi = omi;
+            is_set_hi = true;
+            continue;
+          }
+          if (ok>omi) {
+            lo = mi;
+            olo = omi;
+            is_set_lo = true;
+            continue;
+          }
+          if constexpr (is_injective<hash>::value) {
+            return ~size_type(0);
+          } else {
+            if (k<data[mi].first) {
+              hi = mi;
+              ohi = omi;
+              is_set_hi = true;
+              continue;
+            }
+            if (k>data[mi].first) {
+              lo = mi;
+              olo = omi;
+              is_set_lo = true;
+              continue;
+            }
           }
           return ~size_type(0);
         }
-        //if (d<16)                  return find_node_binary(k,ok,lo,hi);
-#ifdef PATCHMAP_STAT
-        ++recursion_depth;
-#endif
-        if (i>2*log2(datasize+1)) return find_node_binary(k,ok,lo,hi); 
-        if (d>=(size_type(1)<<digits<size_type>()/2)){
-          l = log2(d)-digits<size_type>()/2;
-        } else {
-          l = 0;
-        }
-        if (is_set(lo)&&is_set(hi)){
-          //cout << "a" << endl;
-          if (ok>order(data[hi].first)) {
-            return ~size_type(0);
-          } else if (ok<order(data[lo].first)) {
-            return ~size_type(0);
-          } else {
-            id = (order(data[hi].first)-order(data[lo].first))>>l;
-            //if (id==0) return find_node_binary(k,ok,lo,hi);
-            if (id==0) {
-              mi = lo+(hi-lo+1)/2;
-            } else {
-              od = (ok-order(data[lo].first))>>l;
-              mi = lo+(od*d+id/2)/id;
-            }
-          }
-        } else {
-          id = ( hi-lo)>>l;
-          if (id==0) {
-            mi = lo+(hi-lo+1)/2;
-          } else {
-            if        (is_set(lo)) {
-              if (ok<order(data[lo].first)) return ~size_type(0);
-              if (mok>=hi)                  return ~size_type(0);
-              if (mok<lo) {
-                mi = lo+min(map(ok-order(data[lo].first)),hi-lo);
-              } else {
-                od = (mok-map(order(data[lo].first)))>>l;
-                const size_type step = (od*d+id/2)/id;
-                if (lo+step<=hi) mi = lo+step;
-                else             mi = lo+(hi-lo+1)/2;
-              }
-            } else if (is_set(hi)) {
-              if (ok>order(data[hi].first)) return ~size_type(0);
-              if (mok<=lo)                  return ~size_type(0);
-              if (mok>hi) {
-                mi = hi-min(map(order(data[hi].first)-ok),hi-lo);
-              } else {
-                od = (map(order(data[hi].first))-mok)>>l;
-                const size_type step = (od*d+id/2)/id; 
-                if (lo+step<=hi) mi = hi-step;
-                else             mi = lo+(hi-lo+1)/2;
-              }
-            } else {
-              if (mok>=hi) return ~size_type(0);
-              if (mok<=lo) return ~size_type(0);
-              od = (mok-lo)>>l;
-              mi = lo+(od*d+id/2)/id;
-            }
-          }
-        }
-        //cout << lo << " " << od << " " << d << " " << id << endl;
-        //cout << lo << " " << mi << " " << hi << endl;
-        //cout << endl;
-        
-        assert(mi<=hi);
-        assert(mi>=lo);
-        if (is_set(mi)) {
-          if (equator(data[mi].first,k)) return mi;
-          if constexpr (!is_injective<hash>::value) {
-            if (hasher(data[mi].first)==hk) {
-              if (comparator(data[mi].first,k)){
-                if (mi<hi)
-                  return find_node_interpol(k,hk,ok,mok,mi+1,hi,i+1);
-                else
-                  return ~size_type(0);
-              } else {
-                if (mi>lo)
-                  return find_node_interpol(k,hk,ok,mok,lo,mi-1,i+1);
-                else
-                  return ~size_type(0); 
-              }
-            }
-          }
-          if (order(data[mi].first)<ok){
-            if (mi<hi) return find_node_interpol(k,hk,ok,mok,mi+1,hi,i+1);
-            else       return ~size_type(0);
-          } else {
-            if (mi>lo) return find_node_interpol(k,hk,ok,mok,lo,mi-1,i+1);
-            else       return ~size_type(0);
-          }
-        } else {
-          if (mok==mi) return ~size_type(0);
-          if (mi<mok){
-            if (mi<hi) return find_node_interpol(k,hk,ok,mok,mi+1,hi,i+1);
-            else       return ~size_type(0);
-          } else {
-            if (mi>lo) return find_node_interpol(k,hk,ok,mok,lo,mi-1,i+1);
-            else       return ~size_type(0);
-          }
-        }
+        return ~size_t(0);
       }
 
       size_type inline find_node(
           const key_type &  k,
-          const hash_type& hk,
           const hash_type& ok,
           const size_type& mok)
         const {
 #ifdef PATCHMAP_STAT
         recursion_depth=0;
 #endif
-        if (datasize==0) return ~size_type(0);
         assert((mok<datasize)||(datasize==0));
-        //cout << "find_node " << k << " " << hint << endl;
-        if (is_set(mok)){
-          if (equator(data[mok].first,k)) return mok;
+        if (datasize==0) return ~size_type(0);
+        if (!is_set(mok)) return ~size_type(0);
+        if (equator(data[mok].first,k)) return mok;
+        const hash_type omi = order(data[mok].first);
+        if (omi<ok) {
+          return find_node_interpol(k,ok,mok,
+              mok       ,omi          ,true ,
+              datasize-1,~size_type(0),false);
         } else {
-          return ~size_type(0);
-        }
-        size_type lo;
-        size_type hi;
-        size_type mi;
-        size_type oi = order(data[mok].first);
-        if (oi<ok){
-          hi = datasize-1;
-          lo = min(mok+1,hi);
-          const size_type st = map_diff_round(ok,oi);
-          mi = lo+st<hi?lo+st:lo+(hi-lo)/2;
-        } else {
-          lo = 0;
-          hi = mok>lo?mok-1:lo;
-          const size_type st = map_diff_round(oi,ok);
-          mi = lo+st<hi?hi-st:lo+(hi-lo)/2;
-        }
-#ifdef PATCHMAP_STAT
-        recursion_depth=1;
-#endif
-        if (is_set(mi)) {
-          if (equator(data[mi].first,k)) return mi;
-          if constexpr (!is_injective<hash>::value) {
-            if (hasher(data[mi].first)==hk) {
-              if (comparator(data[mi].first,k)){
-                if (mi<hi)
-                  return find_node_interpol_v2(k,hk,ok,mok,mi+1,hi,1);
-                else
-                  return ~size_type(0);
-              } else {
-                if (mi>lo)
-                  return find_node_interpol_v2(k,hk,ok,mok,lo,mi-1,1);
-                else
-                  return ~size_type(0); 
-              }
-            }
-          }
-          if (order(data[mi].first)<ok){
-            if (mi<hi) return find_node_interpol_v2(k,hk,ok,mok,mi+1,hi,1);
-            else       return ~size_type(0);
-          } else {
-            if (mi>lo) return find_node_interpol_v2(k,hk,ok,mok,lo,mi-1,1);
-            else       return ~size_type(0);
-          }
-        } else {
-          if (mok==mi) return ~size_type(0);
-          if (mi<mok){
-            if (mi<hi) return find_node_interpol_v2(k,hk,ok,mok,mi+1,hi,1);
-            else       return ~size_type(0);
-          } else {
-            if (mi>lo) return find_node_interpol_v2(k,hk,ok,mok,lo,mi-1,1);
-            else       return ~size_type(0);
-          }
+          return find_node_interpol(k,ok,mok,
+              0         ,0            ,false,
+              mok       ,          omi,true );
         }
       }
       
       size_type const inline find_node(
           const  key_type&  k,
-          const hash_type& hk,
           const size_type& ok
-          ) const {
-        const size_type mok = map(ok);
-        return find_node(k,hk,ok,map(ok));
-      }
-      
-      size_type const inline find_node(
-          const  key_type&  k,
-          const hash_type& hk
-          ) const {
-        const size_type ok = distribute(hk);
-        return find_node(k,hk,ok);
-      }
+          ) const { return find_node(k,ok,map(ok)); }
       
       size_type const inline find_node(const key_type& k)
-      const {
-        const hash_type& hk = hasher(k);
-        return find_node(k,hk);
-      }
+      const { return find_node(k,order(k)); }
 
       size_type const inline find_node_bruteforce(const key_type& k) const {
         for (size_type i = 0; i!=datasize; ++i)
@@ -870,10 +673,9 @@ namespace wmath{
       }
       size_type erase(
           const  key_type&  k,
-          const hash_type& hk,
           const hash_type& ok,
           const size_type& hint){
-        size_type i = find_node(k,hk,ok,hint);
+        size_type i = find_node(k,ok,hint);
         if (i>=datasize) return 0;
         //cout << "erasing " << wmath::frac(ok) << endl;
         //cout << "found at " << i << endl;
@@ -905,23 +707,14 @@ namespace wmath{
       }
       size_type erase(
           const  key_type&  k,
-          const hash_type& hk,
           const size_type& ok
           ){
         const hash_type hint = map(ok);
-        return erase(k,hk,ok,hint);
+        return erase(k,ok,hint);
       }
-      size_type erase(
-          const key_type &  k,
-          const hash_type& hk){
+      size_type erase(const key_type& k){
         const size_type ok = order(k);
-        return erase(k,hk,ok);
-      }
-      size_type erase(
-          const key_type &  k
-          ){
-        const hash_type hk = hasher(k);
-        return erase(k,hk);
+        return erase(k,ok);
       }
       void inline clear(){
         for (size_type i=0;i!=masksize;++i) mask[i]=0;
@@ -1010,13 +803,7 @@ namespace wmath{
       }
       void inline ensure_size(){
         if constexpr (!dynamic) return;
-#if defined PATCHMAP_EXPANSIVE
-        if (num_data*4<datasize*3) return;
-        if (datasize) resize(2*datasize);
-        else resize(256);
-        return;
-#endif
-        if (num_data*17<datasize*16) return;
+        if (num_data*32<datasize*31) return;
         //const size_type l2 = log2(datasize+1);
         //if ( (128*31+l2*l2*32)*num_data < (128+l2*l2)*31*datasize ) return;
         //if ( (128*15+l2*l2*16)*num_data < (128+l2*l2)*15*datasize ) return;
@@ -1031,7 +818,7 @@ namespace wmath{
           //nextsize = 47*datasize/37;
           //nextsize = 53*datasize/41;
           //nextsize = (113*datasize+44)/89;
-          nextsize = (110*datasize+44)/89;
+          nextsize = (107*datasize+89)/89;
           nextsize = (nextsize+digits<size_type>()-1)/digits<size_type>();
           nextsize = mask.next_size(nextsize);
           nextsize*= digits<size_type>();
