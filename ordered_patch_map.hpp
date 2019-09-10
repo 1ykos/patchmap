@@ -16,6 +16,7 @@
 #include <typeinfo>
 #include <exception>
 #include <memory>
+
 #include "wmath_forward.hpp"
 #include "wmath_bits.hpp"
 #include "wmath_hash.hpp"
@@ -71,10 +72,6 @@ namespace wmath{
       typedef typename alloc::difference_type difference_type;
       typedef typename alloc::size_type size_type;
       typedef typename std::result_of<hash(key_type)>::type hash_type;
-      typedef typename conditional<is_same<mapped_type,void>::value,
-                                  key_type,
-                                  mapped_type>::type
-                                  _mapped_type;
     private:
       size_type num_data;
       size_type datasize;
@@ -86,26 +83,10 @@ namespace wmath{
       comp  comparator;
       equal equator;
       hash  hasher;
-      /*
-      template<typename... Ts>
-      auto inline const comparator(Ts&&... args) const {
-        return comp{}(args...);
-      }
-      template<typename... Ts>
-      auto inline const equator(Ts&&... args) const {
-        return equal{}(args...);
-      }
-      template<typename... Ts>
-      auto inline const hasher(Ts&&... args) const {
-        return hash{}(args...);
-      }
-      */
-      using uphold_iterator_validity = true_type;
-      /* TODO
-      size_type const inline masksize() const {
-        return (datasize+digits<size_type>()-1)/digits<size_type>();
-      }
-      */
+      using uphold_iterator_validity = false_type;
+      // size_type const inline masksize() const {
+      //  return (datasize+digits<size_type>()-1)/digits<size_type>();
+      //}
       template<typename T>
       const key_type& key_of(T&& value) const {
         if constexpr (is_same<void,mapped_type>::value) return value;
@@ -125,7 +106,7 @@ namespace wmath{
           const hash_type& h1,
           const hash_type& n
           ) const {
-        const auto lm = long_mul(h0-h1,n);
+        const auto lm = long_mul(hash_type(h0-h1),n);
         return get<0>(lm);
       }
       size_type inline map_diff(
@@ -139,7 +120,7 @@ namespace wmath{
           const hash_type& h1,
           const hash_type& n
           ) const {
-        const auto lm = long_mul(h0-h1,n);
+        const auto lm = long_mul(hash_type(h0-h1),n);
         return get<0>(lm)+(get<1>(lm)>((~hash_type(0))>>1));
       }
       size_type inline map_diff_round(
@@ -389,7 +370,6 @@ namespace wmath{
 #ifdef PATCHMAP_STAT
         shift_count = 0;
 #endif
-        assert(hint<datasize);
         assert(map(order(key))==mok);
         if (!is_set(mok)) {
           set(mok);
@@ -439,6 +419,7 @@ namespace wmath{
         assert(hint<datasize);
         return reserve_node(key,hint,ok);
       }
+      /* TODO return the position the key would be at if it cannot be found
       size_type inline find_node_binary(
           const key_type& key,
           const hash_type& ok,
@@ -453,7 +434,7 @@ namespace wmath{
         assert(lo<datasize);
         assert(hi<datasize);
         assert(lo<=hi);
-        const size_type  mi = (hi+lo)/2;
+        const size_type  mi = lo + (hi-lo)/2;
         if (VERBOSE_PATCHMAP)
           cerr << lo << " " << mi << " " << hi << endl;
         if (is_set(mi)) if (equator(data[mi].first,key)) return mi;
@@ -476,7 +457,7 @@ namespace wmath{
           }
         }
         return ~size_type(0);
-      }
+      }*/
       
       size_type inline interpol(
           const hash_type& ok,
@@ -485,33 +466,20 @@ namespace wmath{
           const size_type& lo,
           const size_type& hi
           ) const {
-        auto lm             = long_mul(size_type(ok-olo),hi-lo);
+        auto lm             = long_mul(size_type(ok)-size_type(olo),hi-lo);
         // this is theoretically better but not worth the time
         //const hash_type tmp = get<1>(lm)+(ohi-olo)/2;
         //if (tmp<get<1>(lm)) ++get<0>(lm);
         //get<1>(lm)          = tmp;
         const size_type n   = clz(get<0>(lm));
-        const size_type m   = digits<hash_type>()-n;
-        const hash_type den = (ohi-olo)>>m;
+        const size_type m   = digits<size_type>()-n;
+        const hash_type den = (size_type(ohi)-size_type(olo))>>m;
         const hash_type nom = (get<0>(lm)<<n)+(get<1>(lm)>>m);
         return lo+nom/den;
       }
 
-      size_type inline find_node_linear(
-          const key_type& k,
-          const size_type& lo,
-          const size_type& hi) const {
-        size_type i = lo;
-        while(true){
-          if (is_set(i)) if (equator(data[i].first,k)) return i;
-          if (i==hi) return ~size_type(0);
-          ++i;
-        }
-      }
-      
       size_type inline find_node_interpol(
         const  key_type&   k,
-        const hash_type&  hk,
         const hash_type&  ok,
         const size_type& mok,
               size_type   lo,
@@ -524,7 +492,7 @@ namespace wmath{
         assert(lo<=hi||datasize==0);
         size_type mi;
         while(true) {
-          if (!(lo<hi)) return ~size_type(0);
+          //if (!(lo<hi)) return ~size_type(0);
 #ifdef PATCHMAP_STAT
           ++recursion_depth;
 #endif
@@ -588,13 +556,13 @@ namespace wmath{
           if constexpr (is_injective<hash>::value) {
             return ~size_type(0);
           } else {
-            if (k<data[mi].first) {
+            if (comparator(k,data[mi].first)) {
               hi = mi;
               ohi = omi;
               is_set_hi = true;
               continue;
             }
-            if (k>data[mi].first) {
+            if (comparator(data[mi].first,k)) {
               lo = mi;
               olo = omi;
               is_set_lo = true;
@@ -608,7 +576,6 @@ namespace wmath{
 
       size_type inline find_node(
           const key_type &  k,
-          const hash_type& hk,
           const hash_type& ok,
           const size_type& mok)
         const {
@@ -616,16 +583,16 @@ namespace wmath{
         recursion_depth=0;
 #endif
         assert((mok<datasize)||(datasize==0));
-        if (datasize==0) return ~size_type(0);
-        if (!is_set(mok)) return ~size_type(0);
+        if (datasize==0) return 0;
+        if (!is_set(mok)) return mok;
         if (equator(data[mok].first,k)) return mok;
         const hash_type omi = order(data[mok].first);
         if (omi<ok) {
-          return find_node_interpol(k,hk,ok,mok,
+          return find_node_interpol(k,ok,mok,
               mok       ,omi          ,true ,
               datasize-1,~size_type(0),false);
         } else {
-          return find_node_interpol(k,hk,ok,mok,
+          return find_node_interpol(k,ok,mok,
               0         ,0            ,false,
               mok       ,          omi,true );
         }
@@ -633,17 +600,11 @@ namespace wmath{
       
       size_type const inline find_node(
           const  key_type&  k,
-          const hash_type& hk,
           const size_type& ok
-          ) const { return find_node(k,hk,ok,map(ok)); }
-      
-      size_type const inline find_node(
-          const  key_type&  k,
-          const hash_type& hk
-          ) const { return find_node(k,hk,distribute(hk)); }
+          ) const { return find_node(k,ok,map(ok)); }
       
       size_type const inline find_node(const key_type& k)
-      const { return find_node(k,hasher(k)); }
+      const { return find_node(k,order(k)); }
 
       size_type const inline find_node_bruteforce(const key_type& k) const {
         for (size_type i = 0; i!=datasize; ++i)
@@ -871,7 +832,7 @@ namespace wmath{
           const hash_type& hk,
           const hash_type& ok,
           const size_type& hint){
-        size_type i = find_node(k,hk,ok,hint);
+        size_type i = find_node(k,ok,hint);
         const size_type mok = map(ok);
         if (i>=datasize) return 0;
         //cout << "erasing " << wmath::frac(ok) << endl;
@@ -932,6 +893,7 @@ namespace wmath{
         if (VERBOSE_PATCHMAP)
           cerr << "resizing from " << datasize << " to " << n << endl;
         //cerr << "resizing from " << datasize << " to " << n << endl;
+        resize_out_of_place(n); return;
         if constexpr (!is_same<
             alloc,
             boost::container::allocator<std::pair<key_type,mapped_type>,2>
@@ -1070,10 +1032,9 @@ namespace wmath{
         //if ( (128*15+l2*l2*16)*num_data < (128+l2*l2)*15*datasize ) return;
         //if ( (128*7+l2*l2*8)*num_data < (128+l2*l2)*7*datasize ) return;
         size_type nextsize;
-        if (datasize < 257){
+        if (datasize < 257) {
           if (datasize == 0) nextsize = digits<size_type>();
           else nextsize = 2*datasize;
-          resize(nextsize);
         } else {
           //nextsize = 50*datasize/31;
           //nextsize = 48*datasize/31;
@@ -1084,15 +1045,22 @@ namespace wmath{
         }
         resize(nextsize);
       }
+      enable_if<mapped_type
       _mapped_type& operator[](const key_type& k){
         /*if (VERBOSE_PATCHMAP)
           cerr << "operator[] " << k << endl;*/
         const size_type i = find_node(k);
         if (VERBOSE_PATCHMAP)
-          cerr << "i = " << i << endl; 
-        if (i<datasize) {
-          if constexpr (is_same<mapped_type,void>::value) return data[i].first;
-          else return data[i].second;
+          cerr << "i = " << i << endl;
+        if (equator(k,data[i].first)) {
+          if constexpr (is_same<mapped_type,void>::value) {
+            return data[i].first; 
+          } else {
+            return data[i].first;
+          }
+            if constexpr (is_same<mapped_type,void>::value) return data[i].first;
+            else return data[i].second;
+          }
         }
         //assert(find_node_bruteforce(k)==~size_type(0));
         ensure_size();
