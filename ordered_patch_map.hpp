@@ -22,11 +22,6 @@
 #include "wmath_hash.hpp"
 #include "wmath_math.hpp"
 
-#ifdef PATCHMAP_STAT
-size_t recursion_depth;
-size_t shift_count;
-#endif
-
 //#define PATCHMAP_EXPANSIVE
 
 namespace wmath{
@@ -367,9 +362,6 @@ namespace wmath{
           const size_type& mok,
           const hash_type& ok
           ){
-#ifdef PATCHMAP_STAT
-        shift_count = 0;
-#endif
         assert(map(order(key))==mok);
         if (!is_set(mok)) {
           set(mok);
@@ -391,9 +383,6 @@ namespace wmath{
           swap(data[i],data[i-1]);
           --i;
         }
-#ifdef PATCHMAP_STAT
-        shift_count = j-i;
-#endif
         if (i!=j) return i;
         while(true){
           if (i+1>=datasize) break;
@@ -402,9 +391,6 @@ namespace wmath{
           swap(data[i],data[i+1]);
           ++i;
         }
-#ifdef PATCHMAP_STAT
-        shift_count = i-j;
-#endif
         return i;
       }
       size_type inline reserve_node(
@@ -419,45 +405,6 @@ namespace wmath{
         assert(hint<datasize);
         return reserve_node(key,hint,ok);
       }
-      /* TODO return the position the key would be at if it cannot be found
-      size_type inline find_node_binary(
-          const key_type& key,
-          const hash_type& ok,
-          const size_type& lo, // inclusive bounds
-          const size_type& hi  // inclusive bounds
-          ) const {
-#ifdef PATCHMAP_STAT
-        ++recursion_depth;
-#endif
-        if (VERBOSE_PATCHMAP)
-          cerr << "find_node_binary(" << lo << ", " << hi << ")"<< endl;  
-        assert(lo<datasize);
-        assert(hi<datasize);
-        assert(lo<=hi);
-        const size_type  mi = lo + (hi-lo)/2;
-        if (VERBOSE_PATCHMAP)
-          cerr << lo << " " << mi << " " << hi << endl;
-        if (is_set(mi)) if (equator(data[mi].first,key)) return mi;
-        if constexpr (is_injective<hash>::value) {
-          if (index_key_is_less(mi,key)){
-            if (mi<hi) return find_node_binary(key,ok,mi+1,hi);
-            else return ~size_type(0);
-          } else {
-            if (mi>lo) return find_node_binary(key,ok,lo,mi-1);
-            else return ~size_type(0);
-          }
-        } else {
-          if (index_key_is_less(mi,key)){
-            if (mi<hi) return find_node_binary(key,ok,mi+1,hi);
-            else return ~size_type(0);
-          }
-          if (key_index_is_less(key,mi)){
-            if (mi>lo) return find_node_binary(key,ok,lo,mi-1);
-            else return ~size_type(0);
-          }
-        }
-        return ~size_type(0);
-      }*/
       
       size_type inline interpol(
           const hash_type& ok,
@@ -493,9 +440,6 @@ namespace wmath{
         size_type mi;
         while(true) {
           //if (!(lo<hi)) return ~size_type(0);
-#ifdef PATCHMAP_STAT
-          ++recursion_depth;
-#endif
           if (hi-lo<2) {
             if (is_set_lo&&is_set_hi) return ~size_type(0);
             if (is_set(lo)) if (equator(k,data[lo].first)) return lo;
@@ -579,9 +523,6 @@ namespace wmath{
           const hash_type& ok,
           const size_type& mok)
         const {
-#ifdef PATCHMAP_STAT
-        recursion_depth=0;
-#endif
         assert((mok<datasize)||(datasize==0));
         if (datasize==0) return 0;
         if (!is_set(mok)) return mok;
@@ -624,16 +565,13 @@ namespace wmath{
 
       template<typename map_type>
       typename conditional<is_const<map_type>::value,
-        const _mapped_type&,
-              _mapped_type&>::type
+        const mapped_type&,
+              mapped_type&>::type
       static inline const_noconst_at(map_type& hashmap,const key_type& k) {
         size_type i = hashmap.find_node(k);
         if (i<hashmap.datasize){
           assert(hashmap.is_set(i));
-          if constexpr (is_same<mapped_type,void>::value)
-            return hashmap.data[i].first;
-          else return
-            hashmap.data[i].second;
+          hashmap.data[i].second;
         } else throw std::out_of_range(
             std::string(typeid(hashmap).name())
             +".const_noconst_at("+typeid(k).name()+" k)"
@@ -1045,53 +983,31 @@ namespace wmath{
         }
         resize(nextsize);
       }
-      enable_if<mapped_type
-      _mapped_type& operator[](const key_type& k){
+      mapped_type& operator[](const key_type& k){
         /*if (VERBOSE_PATCHMAP)
           cerr << "operator[] " << k << endl;*/
         const size_type i = find_node(k);
         if (VERBOSE_PATCHMAP)
           cerr << "i = " << i << endl;
-        if (equator(k,data[i].first)) {
-          if constexpr (is_same<mapped_type,void>::value) {
-            return data[i].first; 
-          } else {
-            return data[i].first;
-          }
-            if constexpr (is_same<mapped_type,void>::value) return data[i].first;
-            else return data[i].second;
-          }
-        }
-        //assert(find_node_bruteforce(k)==~size_type(0));
+        if (i!=~size_type(0)) return data[i].second;
         ensure_size();
-        //assert(check_ordering());
         const size_type j = reserve_node(k);
         if (VERBOSE_PATCHMAP)
           cerr << "j = " << j << endl;
-        //data[j].first = k;
-        //data[j] = value_type();
-        if constexpr (is_same<void,mapped_type>::value) {
-          allocator_traits<alloc>::construct(allocator,data+j,k,wmath::empty());
-        } else {
-          allocator_traits<alloc>::construct(allocator,data+j,k,mapped_type());
-        }
-        //assert(check_ordering());
-        //assert(find_node_bruteforce(k)==j);
-        //assert(find_node(k)==j);
+        allocator_traits<alloc>::construct(allocator,data+j,k,mapped_type());
         assert(check_ordering(j));
-        if constexpr (is_same<mapped_type,void>::value) return data[i].first;
-        else return data[j].second;
+        return data[j].second;
       }
-      const _mapped_type& operator[](const key_type& k) const {
+      const mapped_type& operator[](const key_type& k) const {
         const size_type i = find_node(k);
         assert(i<datasize);
         if constexpr (is_same<void,mapped_type>::value) return data[i].first;
         return data[i].second; // this is only valid if key exists!
       }
-      _mapped_type& at(const key_type& k){
+      mapped_type& at(const key_type& k){
         return const_noconst_at(*this,k);
       }
-      const _mapped_type& at(const key_type& k) const {
+      const mapped_type& at(const key_type& k) const {
         return const_noconst_at(*this,k);
       }
       size_type const inline count(const key_type& k) const {
