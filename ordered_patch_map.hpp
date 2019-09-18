@@ -17,13 +17,6 @@
 #include <exception>
 #include <memory>
 
-#ifdef PATCHMAP_STAT
-size_t recursion_depth;
-size_t shift_count;
-#endif
-
-//#define PATCHMAP_EXPANSIVE
-
 namespace whash{
   bool constexpr VERBOSE_PATCHMAP = false;
   using std::allocator_traits;
@@ -423,12 +416,10 @@ namespace whash{
       comp  comparator;
       equal equator;
       hash  hasher;
-      using uphold_iterator_validity = true_type;
-      /* TODO
-      size_type const inline masksize() const {
-        return (datasize+digits<size_type>()-1)/digits<size_type>();
-      }
-      */
+      using uphold_iterator_validity = false_type;
+      // size_type const inline masksize() const {
+      //  return (datasize+digits<size_type>()-1)/digits<size_type>();
+      //}
       template<typename T>
       const key_type& key_of(T&& value) const {
         if constexpr (is_same<void,mapped_type>::value) return value;
@@ -448,7 +439,7 @@ namespace whash{
           const hash_type& h1,
           const hash_type& n
           ) const {
-        const auto lm = long_mul(h0-h1,n);
+        const auto lm = long_mul(hash_type(h0-h1),n);
         return get<0>(lm);
       }
       size_type inline map_diff(
@@ -462,7 +453,7 @@ namespace whash{
           const hash_type& h1,
           const hash_type& n
           ) const {
-        const auto lm = long_mul(h0-h1,n);
+        const auto lm = long_mul(hash_type(h0-h1),n);
         return get<0>(lm)+(get<1>(lm)>((~hash_type(0))>>1));
       }
       size_type inline map_diff_round(
@@ -711,10 +702,6 @@ namespace whash{
           const size_type& mok,
           const hash_type& ok
           ){
-#ifdef PATCHMAP_STAT
-        shift_count = 0;
-#endif
-        assert(hint<datasize);
         assert(map(order(key))==mok);
         if (!is_set(mok)) {
           set(mok);
@@ -736,9 +723,6 @@ namespace whash{
           swap(data[i],data[i-1]);
           --i;
         }
-#ifdef PATCHMAP_STAT
-        shift_count = j-i;
-#endif
         if (i!=j) return i;
         while(true){
           if (i+1>=datasize) break;
@@ -747,9 +731,6 @@ namespace whash{
           swap(data[i],data[i+1]);
           ++i;
         }
-#ifdef PATCHMAP_STAT
-        shift_count = i-j;
-#endif
         return i;
       }
       size_type inline reserve_node(
@@ -764,44 +745,6 @@ namespace whash{
         assert(hint<datasize);
         return reserve_node(key,hint,ok);
       }
-      size_type inline find_node_binary(
-          const key_type& key,
-          const hash_type& ok,
-          const size_type& lo, // inclusive bounds
-          const size_type& hi  // inclusive bounds
-          ) const {
-#ifdef PATCHMAP_STAT
-        ++recursion_depth;
-#endif
-        if (VERBOSE_PATCHMAP)
-          cerr << "find_node_binary(" << lo << ", " << hi << ")"<< endl;  
-        assert(lo<datasize);
-        assert(hi<datasize);
-        assert(lo<=hi);
-        const size_type  mi = (hi+lo)/2;
-        if (VERBOSE_PATCHMAP)
-          cerr << lo << " " << mi << " " << hi << endl;
-        if (is_set(mi)) if (equator(data[mi].first,key)) return mi;
-        if constexpr (is_injective<hash>::value) {
-          if (index_key_is_less(mi,key)){
-            if (mi<hi) return find_node_binary(key,ok,mi+1,hi);
-            else return ~size_type(0);
-          } else {
-            if (mi>lo) return find_node_binary(key,ok,lo,mi-1);
-            else return ~size_type(0);
-          }
-        } else {
-          if (index_key_is_less(mi,key)){
-            if (mi<hi) return find_node_binary(key,ok,mi+1,hi);
-            else return ~size_type(0);
-          }
-          if (key_index_is_less(key,mi)){
-            if (mi>lo) return find_node_binary(key,ok,lo,mi-1);
-            else return ~size_type(0);
-          }
-        }
-        return ~size_type(0);
-      }
       
       size_type inline interpol(
           const hash_type& ok,
@@ -810,33 +753,20 @@ namespace whash{
           const size_type& lo,
           const size_type& hi
           ) const {
-        auto lm             = long_mul(size_type(ok-olo),hi-lo);
+        auto lm             = long_mul(size_type(ok)-size_type(olo),hi-lo);
         // this is theoretically better but not worth the time
         //const hash_type tmp = get<1>(lm)+(ohi-olo)/2;
         //if (tmp<get<1>(lm)) ++get<0>(lm);
         //get<1>(lm)          = tmp;
         const size_type n   = clz(get<0>(lm));
-        const size_type m   = digits<hash_type>()-n;
-        const hash_type den = (ohi-olo)>>m;
+        const size_type m   = digits<size_type>()-n;
+        const hash_type den = (size_type(ohi)-size_type(olo))>>m;
         const hash_type nom = (get<0>(lm)<<n)+(get<1>(lm)>>m);
         return lo+nom/den;
       }
 
-      size_type inline find_node_linear(
-          const key_type& k,
-          const size_type& lo,
-          const size_type& hi) const {
-        size_type i = lo;
-        while(true){
-          if (is_set(i)) if (equator(data[i].first,k)) return i;
-          if (i==hi) return ~size_type(0);
-          ++i;
-        }
-      }
-      
       size_type inline find_node_interpol(
         const  key_type&   k,
-        const hash_type&  hk,
         const hash_type&  ok,
         const size_type& mok,
               size_type   lo,
@@ -849,10 +779,7 @@ namespace whash{
         assert(lo<=hi||datasize==0);
         size_type mi;
         while(true) {
-          if (!(lo<hi)) return ~size_type(0);
-#ifdef PATCHMAP_STAT
-          ++recursion_depth;
-#endif
+          //if (!(lo<hi)) return ~size_type(0);
           if (hi-lo<2) {
             if (is_set_lo&&is_set_hi) return ~size_type(0);
             if (is_set(lo)) if (equator(k,data[lo].first)) return lo;
@@ -913,13 +840,13 @@ namespace whash{
           if constexpr (is_injective<hash>::value) {
             return ~size_type(0);
           } else {
-            if (k<data[mi].first) {
+            if (comparator(k,data[mi].first)) {
               hi = mi;
               ohi = omi;
               is_set_hi = true;
               continue;
             }
-            if (k>data[mi].first) {
+            if (comparator(data[mi].first,k)) {
               lo = mi;
               olo = omi;
               is_set_lo = true;
@@ -933,24 +860,20 @@ namespace whash{
 
       size_type inline find_node(
           const key_type &  k,
-          const hash_type& hk,
           const hash_type& ok,
           const size_type& mok)
         const {
-#ifdef PATCHMAP_STAT
-        recursion_depth=0;
-#endif
         assert((mok<datasize)||(datasize==0));
-        if (datasize==0) return ~size_type(0);
-        if (!is_set(mok)) return ~size_type(0);
+        if (datasize==0) return 0;
+        if (!is_set(mok)) return mok;
         if (equator(data[mok].first,k)) return mok;
         const hash_type omi = order(data[mok].first);
         if (omi<ok) {
-          return find_node_interpol(k,hk,ok,mok,
+          return find_node_interpol(k,ok,mok,
               mok       ,omi          ,true ,
               datasize-1,~size_type(0),false);
         } else {
-          return find_node_interpol(k,hk,ok,mok,
+          return find_node_interpol(k,ok,mok,
               0         ,0            ,false,
               mok       ,          omi,true );
         }
@@ -958,16 +881,11 @@ namespace whash{
       
       size_type const inline find_node(
           const  key_type&  k,
-          const hash_type& hk,
           const size_type& ok
-          ) const { return find_node(k,hk,ok,map(ok)); }
-      size_type const inline find_node(
-          const  key_type&  k,
-          const hash_type& hk
-          ) const { return find_node(k,hk,distribute(hk)); }
+          ) const { return find_node(k,ok,map(ok)); }
       
       size_type const inline find_node(const key_type& k)
-      const { return find_node(k,hasher(k)); }
+      const { return find_node(k,order(k)); }
 
       size_type const inline find_node_bruteforce(const key_type& k) const {
         for (size_type i = 0; i!=datasize; ++i)
@@ -987,16 +905,13 @@ namespace whash{
 
       template<typename map_type>
       typename conditional<is_const<map_type>::value,
-        const _mapped_type&,
-              _mapped_type&>::type
+        const mapped_type&,
+              mapped_type&>::type
       static inline const_noconst_at(map_type& hashmap,const key_type& k) {
         size_type i = hashmap.find_node(k);
         if (i<hashmap.datasize){
           assert(hashmap.is_set(i));
-          if constexpr (is_same<mapped_type,void>::value)
-            return hashmap.data[i].first;
-          else return
-            hashmap.data[i].second;
+          hashmap.data[i].second;
         } else throw std::out_of_range(
             std::string(typeid(hashmap).name())
             +".const_noconst_at("+typeid(k).name()+" k)"
@@ -1195,7 +1110,7 @@ namespace whash{
           const hash_type& hk,
           const hash_type& ok,
           const size_type& hint){
-        size_type i = find_node(k,hk,ok,hint);
+        size_type i = find_node(k,ok,hint);
         const size_type mok = map(ok);
         if (i>=datasize) return 0;
         //cout << "erasing " << wmath::frac(ok) << endl;
@@ -1255,6 +1170,7 @@ namespace whash{
         if (n<num_data) return;
         if (VERBOSE_PATCHMAP)
           cerr << "resizing from " << datasize << " to " << n << endl;
+        resize_out_of_place(n); return;
         if constexpr (!is_same<
             alloc,
             boost::container::allocator<std::pair<key_type,mapped_type>,2>
@@ -1390,10 +1306,9 @@ namespace whash{
 #endif
         if (num_data*8 < datasize*7 ) return;
         size_type nextsize;
-        if (datasize < 257){
+        if (datasize < 257) {
           if (datasize == 0) nextsize = digits<size_type>();
           else nextsize = 2*datasize;
-          resize(nextsize);
         } else {
           //nextsize = 50*datasize/31;
           //nextsize = 48*datasize/31;
@@ -1414,7 +1329,7 @@ namespace whash{
         allocator_traits<alloc>::construct(allocator,data+j,k,_mapped_type());
         return data[j].second;
       }
-      const _mapped_type& operator[](const key_type& k) const {
+      const mapped_type& operator[](const key_type& k) const {
         const size_type i = find_node(k);
         if (i<datasize) data[i].second;
         else throw std::out_of_range(
@@ -1424,10 +1339,10 @@ namespace whash{
             +to_string(i)+" out of bounds"
            );
       }
-      _mapped_type& at(const key_type& k){
+      mapped_type& at(const key_type& k){
         return const_noconst_at(*this,k);
       }
-      const _mapped_type& at(const key_type& k) const {
+      const mapped_type& at(const key_type& k) const {
         return const_noconst_at(*this,k);
       }
       size_type const inline count(const key_type& k) const {
