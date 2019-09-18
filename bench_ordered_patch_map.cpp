@@ -9,7 +9,7 @@
 #include <string>
 #include <unordered_map>
 #ifdef PATCHMAP
-#include "ordered_patch_map.hpp"
+#include "patchmap.hpp"
 #endif
 //#include "doubling_patchmap.hpp"
 //#include "unordered_map.hpp"
@@ -120,7 +120,7 @@ int main(int argc, char** argv){
   tsl::sparse_map<uint64_t,uint64_t> test;
 #endif
 #ifdef PATCHMAP
-  wmath::ordered_patch_map<uint64_t,uint64_t> test;
+  whash::ordered_patch_map<uint64_t,uint64_t> test;
 #endif
 #ifdef SPARSE_PATCHMAP
   wmath::sparse_patchmap<uint64_t,uint64_t> test;
@@ -176,6 +176,10 @@ int main(int argc, char** argv){
 #endif
   std::uniform_int_distribution<size_t> distr;
   double counter = 0;
+  double insert_time = 0;
+  double find_time = 0;
+  double delete_time = 0;
+  double not_find_time = 0;
   double acc_insert = 0;
   double acc_find = 0;
   double acc_delete = 0;
@@ -185,6 +189,7 @@ int main(int argc, char** argv){
   double typical_find_time = 0;
   double typical_not_find_time = 0;
   double typical_memory = 0;
+  double memory = 0;
   auto start = std::clock();
   for (uint64_t i=0;i!=N/4096;++i) {
     auto start = std::clock();
@@ -203,10 +208,12 @@ int main(int argc, char** argv){
       test[n]=n;
 #endif
     }
-    typical_insert_time+=(acc_insert+=(std::clock()-start-base_time))/(i+1);
+    insert_time = (std::clock()-start-base_time);
+    typical_insert_time+=(acc_insert+=insert_time)/(i+1);
     struct proc_t usage;
     look_up_our_self(&usage);
-    typical_memory+=(double(usage.vsize)-initial_memory)/(i+1);
+    memory = double(usage.vsize)-initial_memory;
+    typical_memory+=memory/(i+1);
     mr.seed(i+7ul);
     std::uniform_int_distribution<size_t> distr(0,i);
     const size_t l0 = distr(mr);
@@ -226,7 +233,8 @@ int main(int argc, char** argv){
       sand+=test.count(n);
 #endif
     }
-    typical_find_time+=(acc_find+=(std::clock()-start-base_time))/(i+1);
+    find_time = std::clock()-start-base_time;
+    typical_find_time+=(acc_find+=find_time)/(i+1);
     const size_t l1 = distr(mr);
     start = std::clock();
     for (size_t j=0;j!=4096;++j) {
@@ -244,7 +252,8 @@ int main(int argc, char** argv){
       sand+=test.count(n);
 #endif
     }
-    typical_not_find_time+=(acc_not_find+=(std::clock()-start-base_time))/(i+1);
+    not_find_time = std::clock()-start-base_time; 
+    typical_not_find_time+=(acc_not_find+=not_find_time)/(i+1);
     //const size_t l2 = distr(mr);
     start = std::clock();
     for (size_t j=0;j!=4096;++j){
@@ -261,7 +270,8 @@ int main(int argc, char** argv){
       test.erase(n);
 #endif
     }
-    typical_delete_time+=(acc_delete+=(std::clock()-start-base_time))/(i+1);
+    delete_time = std::clock()-start-base_time;
+    typical_delete_time+=(acc_delete+=delete_time)/(i+1);
     for (size_t j=0;j!=4096;++j){
       const uint64_t n = gen_rand(uint64_t(2*(i*4096+j)));
 #ifdef KHASH
@@ -278,13 +288,11 @@ int main(int argc, char** argv){
 #endif
     }
     //cout << i*4096 << " " << num_set << " " << test.num_elem << endl;
-    if ((size_t(1)<<wmath::log2(i))==i) {
-      cout << typical_memory/(i*4096)        << " "
-           << typical_insert_time/(i*4096)   << " "
-           << typical_delete_time/(i*4096)   << " "
-           << typical_find_time/(i*4096)     << " "
-           << typical_not_find_time/(i*4096) << endl;
-    }
+    /*cout << memory/(4096)        << " "
+         << insert_time/(4096)   << " "
+         << delete_time/(4096)   << " "
+         << find_time/(4096)     << " "
+         << not_find_time/(4096) << endl;*/
   }
   cout << typical_memory/N        << " "
        << typical_insert_time/N   << " "
