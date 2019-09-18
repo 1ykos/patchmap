@@ -2148,7 +2148,23 @@ mask&nbsp;&nbsp;...--+++++++--...<br>
   </p>
   <h3><a name="Tombstones and zombies">Tombstones can make things faster but they also create zombies</a></h3>
   <p>
-  The <tt>patchmap</tt> seems to fare worst in comparison to the other hash tables for deletions. This is probably because I went a different route there. Usually when deleting an element from a hash table elements are not actually removed from the table, they are only marked as deleted. This technique is known as tombstoning. It is done mostly because this is the fastest way to delete elements, but also because the other ways often are much harder to implement. This is not the case in the <tt>patchmap</tt>. There deleting works just like insertion, but in reverse. Deleted but not dead entries, let&#39;s call them zombie entries, can accumulate and if we don&#39;t pay close attention they can take over the table. Such a worst case scenario can be triggered by repeatedly inserting and deleting elements while keeping the table at the same size. Some implementation are immune and others have taken specific precautions to mitigate this issue, usually by rehashing the table as soon as the zombies accumulate too much. This usage pattern or others that generate many zombies are unusual but not impossible, therefore a small to medium slowdown is perfectly acceptable, a severe slowdown might however become an unforeseen problem at some point.
+  The <tt>patchmap</tt> seems to fare worst in comparison to the other hash
+  tables for deletions. This is probably because I went a different route there.
+  Usually when deleting an element from a hash table elements are not actually
+  removed from the table, they are only marked as deleted. This technique is
+  known as tombstoning. It is done mostly because this is the fastest way to
+  delete elements, but also because the other ways often are much harder to
+  implement. This is not the case in the <tt>patchmap</tt>. There deleting works
+  just like insertion, but in reverse. Deleted but not dead entries, let&#39;s
+  call them zombie entries, can accumulate and if we don&#39;t pay close
+  attention they can take over the table. Such a worst case scenario can be
+  triggered by repeatedly inserting and deleting elements while keeping the
+  table at the same size. Some implementations are immune and others have taken
+  specific precautions to mitigate this issue, usually by rehashing the table
+  as soon as the zombies accumulate too much. This usage pattern or others that
+  generate many zombies are unusual but not impossible, therefore a small to
+  medium slowdown is perfectly acceptable, a severe slowdown might however
+  become an unforeseen problem at some point.
   </p>
   <img alt="zombie" width="30%" align="left" src="data:image/png;base64,
 iVBORw0KGgoAAAANSUhEUgAAAlgAAAHCCAAAAAAWGOi4AAA42npUWHRSYXcgcHJvZmlsZSB0eXBl
