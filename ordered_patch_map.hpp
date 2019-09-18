@@ -16,10 +16,6 @@
 #include <typeinfo>
 #include <exception>
 #include <memory>
-#include "wmath_forward.hpp"
-#include "wmath_bits.hpp"
-#include "wmath_hash.hpp"
-#include "wmath_math.hpp"
 
 #ifdef PATCHMAP_STAT
 size_t recursion_depth;
@@ -28,35 +24,376 @@ size_t shift_count;
 
 //#define PATCHMAP_EXPANSIVE
 
-namespace wmath{
+namespace whash{
   bool constexpr VERBOSE_PATCHMAP = false;
-  
+  using std::allocator_traits;
+  using std::array;
+  using std::cerr;
+  using std::conditional;
+  using std::cout;
+  using std::enable_if;
+  using std::endl;
+  using std::false_type;
+  using std::get;
+  using std::index_sequence;
+  using std::index_sequence_for;
+  using std::initializer_list;
+  using std::integral_constant;
+  using std::is_const;
+  using std::is_fundamental;
+  using std::is_same;
+  using std::is_trivially_copyable;
+  using std::numeric_limits;
+  using std::pair;
+  using std::setw;
+  using std::true_type;
+  using std::tuple;
+  using std::swap;
+
   template<class T>
   double frac(const T& n){
     return n*pow(0.5,numeric_limits<T>::digits);
   }
-
-  using std::allocator_traits;
 
   template<typename T>
   struct dummy_comp{ // dummy comparator for when we don't need a comparator
     constexpr bool operator()(const T&,const T&) const {return false;}
   };
 
-  struct empty{
+  template <typename T>
+  constexpr size_t digits(const T& n=0){
+    return numeric_limits<T>::digits;
+  }
+
+  template<typename T>
+  typename std::enable_if<std::is_unsigned<T>::value,tuple<T,T>>::type
+  constexpr long_mul(const T& a, const T& b);
+
+  // calculate a * b = r0r1
+  template<typename T>
+  typename std::enable_if<std::is_unsigned<T>::value,tuple<T,T>>::type
+  constexpr long_mul(const T& a, const T& b){
+    const T N  = digits<T>()/2;
+    const T t0 = (a>>N)*(b>>N);
+    const T t1 = ((a<<N)>>N)*(b>>N);
+    const T t2 = (a>>N)*((b<<N)>>N);
+    const T t3 = ((a<<N)>>N)*((b<<N)>>N);
+    const T t4 = t3+(t1<<N);
+    const T r1 = t4+(t2<<N);
+    const T r0 = (r1<t4)+(t4<t3)+(t1>>N)+(t2>>N)+t0;
+    return {r0,r1};
+  }
+  
+#ifdef __SIZEOF_INT128__
+  template<>
+  tuple<uint64_t,uint64_t>
+  constexpr long_mul(const uint64_t& a, const uint64_t& b){
+    unsigned __int128 r = ((unsigned __int128)(a))*((unsigned __int128)(b));
+    return {r>>64,r};
+  }
+#endif
+
+  template<>
+  tuple<uint8_t,uint8_t> constexpr long_mul(const uint8_t& a,const uint8_t& b){
+    const int_fast16_t r = int_fast16_t(a)*int_fast16_t(b);
+    return {uint8_t(r>>8),uint8_t(r)};
+  }
+ 
+  template<>
+  tuple<uint16_t,uint16_t> constexpr long_mul(
+      const uint16_t& a,
+      const uint16_t& b){
+    const int_fast32_t r = int_fast32_t(a)*int_fast32_t(b);
+    return {uint16_t(r>>16),uint16_t(r)};
+  }
+  
+  template<>
+  tuple<uint32_t,uint32_t> constexpr long_mul(
+      const uint32_t& a,
+      const uint32_t& b){
+    const int_fast64_t r = int_fast64_t(a)*int_fast64_t(b);
+    return {uint32_t(r>>32),uint32_t(r)};
+  }
+  
+  template <typename T>
+  constexpr size_t popcount(const T n){
+    size_t c=0;
+    while(n) (n&=(n-1),++c);
+    return c;
+  }
+
+  constexpr size_t popcount(const uint32_t n){
+    return __builtin_popcountl(n);
+  }
+
+  constexpr size_t popcount(const uint64_t n){
+    return __builtin_popcountll(n);
+  }
+
+  template <typename T>
+  typename std::enable_if<std::is_unsigned<T>::value,T>::type
+  constexpr distribute(const T& a); // mix the hash value good, clmul_circ
+                                    // with odious integer is suitable
+
+  uint8_t  constexpr inline distribute(const uint8_t& a){
+    return (a+111)*97;
+  }
+
+  uint16_t constexpr inline distribute(const uint16_t& a){
+    return (a+36690)*43581;
+  }
+
+  uint32_t constexpr distribute(const uint32_t& a){
+    const uint32_t  b = 0x55555555ul;
+    const uint32_t c0 = 3107070805ul;
+    const uint32_t c1 = 3061963241ul;
+    const uint32_t  n = (a^(a>>16))*b;
+    return n^(n>>16);
+  }
+
+  uint64_t constexpr distribute(const uint64_t& a){
+    const uint64_t  b =   0x5555555555555555ull;
+    const uint64_t c0 = 16123805160827025777ull;
+    const uint64_t c1 = 13834579444137454003ull;
+    const uint64_t c2 = 14210505232527258663ull;
+    const uint64_t  n = (a^(a>>32))*b;
+    return (n^(n>>32));
+  }
+
+  template<typename,typename=void>
+  struct is_injective : false_type {};
+
+  template<typename T>
+  struct is_injective<T,typename enable_if<T::is_injective::value>::type>
+  : true_type {};
+
+  template<typename,typename=void>
+  struct has_std_hash : false_type {};
+
+  template<typename T>
+  struct has_std_hash<T,decltype(std::hash<T>()(std::declval<T>()),void())>
+  : true_type {};
+
+  template<typename T>
+  typename
+  enable_if<has_std_hash<T>::value&&(!is_fundamental<T>::value),size_t>::type
+  constexpr hash(const T& v){
+    return std::hash<T>()(v);
+  }
+
+  size_t constexpr hash() {
+    return 0;
+  }
+
+  size_t constexpr hash(const size_t& seed,const size_t& n) {
+    return seed^distribute(n);
+  }
+
+  template<class K>
+  typename enable_if<(sizeof(K)>sizeof(size_t)
+                   &&is_fundamental<K>::value),size_t>::type
+  constexpr hash(const K& k){
+    size_t h(k);
+    const size_t n = sizeof(K)/sizeof(size_t);
+    for (size_t i=sizeof(size_t);i<sizeof(K);i+=sizeof(size_t))
+      h = hash(h,size_t(k>>(i*CHAR_BIT)));
+    return h;
+  }
+
+  uint8_t constexpr hash(const uint8_t& v){
+    return v;
+  }
+
+  uint8_t constexpr hash(const int8_t& v){
+    return v;
+  }
+
+  uint16_t constexpr hash(const uint16_t& v){
+    return v;
+  }
+
+  uint16_t constexpr hash(const int16_t& v){
+    return v;
+  }
+
+  uint32_t constexpr hash(const uint32_t& v){
+    return v;
+  }
+
+  uint32_t constexpr hash(const int32_t& v){
+    return v;
+  }
+
+  uint64_t constexpr hash(const uint64_t& v){
+    return v;
+  }
+
+  uint64_t constexpr hash(const int64_t& v){
+    return v;
+  }
+ 
+  template <typename T,typename... Rest>
+  size_t constexpr hash(const T& v,Rest... rest);
+
+  uint16_t constexpr hash(const uint8_t& v0,const uint8_t& v1){
+    return (uint16_t(v0)<<8)^uint16_t(v1);
+  }
+
+  uint32_t constexpr hash(const uint16_t& v0,const uint16_t& v1){
+    return (uint32_t(v0)<<16)^(uint32_t(v1));
+  }
+  
+  uint64_t constexpr hash(const uint32_t& v0,const uint32_t& v1){
+    return (uint64_t(v0)<<32)^(uint64_t(v1));
+  }
+  
+  template<typename T,size_t... I>
+  size_t constexpr hash_tuple_impl(const T& t, index_sequence<I...>){
+    return hash(std::get<I>(t)...);
+  }
+
+  template<typename... Ts>
+  size_t constexpr hash(const tuple<Ts...>& t){
+    return hash_tuple_impl(t,index_sequence_for<Ts...>{});
+  }
+
+  template<typename T,size_t n>
+  size_t constexpr hash(const array<T,n> a){
+    size_t h(0);
+    for (size_t i=0;i!=n;++i) {
+      if constexpr(sizeof(T)<=sizeof(size_t))
+        if (i%(sizeof(size_t)/sizeof(T))==0) h = distribute(h); 
+      h = hash(h,a[i]);
+      if constexpr(sizeof(T)>sizeof(size_t)) h = distribute(h);
+    }
+    return h;
+  }
+  
+  template <typename T, typename... Rest>
+  size_t constexpr hash(const T& v, Rest... rest) {
+    return hash(hash(v),hash(rest...));
+  }
+
+  template<class K,class enable = void>
+  struct hash_functor{
+    typedef typename false_type::type is_injective;
+    size_t operator()(const K& k) const {
+      return hash(k);
+    }
   };
   
+  template<class K>
+  struct hash_functor<
+    K,
+    typename enable_if<is_fundamental<K>::value,void>::type
+  >{
+    // if size_t has at least as many digits as the hashed type the hash can
+    // be injective and I will make it so
+    typedef typename integral_constant<bool,sizeof(K)<=sizeof(size_t)>::type
+      is_injective;
+    auto constexpr operator()(const K& k) const {
+      return hash(k);
+    }
+  };
+  
+  template<typename T,size_t n>
+  struct hash_functor<
+    array<T,n>,void>
+  {
+    // if size_t has at least as many digits as the hashed type the hash can
+    // be injective and I will make it so
+    typedef typename integral_constant<bool,n*sizeof(T)<=sizeof(size_t)>::type
+      is_injective;
+    auto constexpr operator()(const array<T,n>& k) const {
+      return hash(k);
+    }
+  };
+  
+  template<typename T0,typename T1,typename T2>
+  constexpr T0 clip(const T0& n,const T1& l,const T2& h){
+    return n<l?l:n>h?h:n;
+  }
+  
+  template <typename T>
+  typename std::enable_if<std::is_unsigned<T>::value,T>::type
+  constexpr clz(const T x,const T lower=0,const T upper=digits<T>()){
+    return (upper-lower==T(1))?digits<T>()-upper:
+      (x&(T(0)-T(1)<<((upper+lower)/2))?
+           clz(x,(upper+lower)/2,upper):
+           clz(x,lower,(upper+lower)/2));
+  }
+ 
+  template <typename T>
+  typename std::enable_if<std::is_unsigned<T>::value,T>::type
+  constexpr ctz(const T x,const T lower=0,const T upper=digits<T>()){
+    return
+      (upper-lower==T(1))?lower:(x&(T(0)-T(1)<<((upper+lower)/2))?
+          ctz(x,(upper+lower)/2,upper):
+          ctz(x,lower,(upper+lower)/2));
+    // TODO
+  }
+
+
+  template <typename T>
+  typename std::enable_if<std::is_unsigned<T>::value,T>::type
+  constexpr log2(const T x,const T lower=0,const T upper=digits<T>()){
+    return (upper-lower==T(1))?lower:(x&(T(0)-T(1)<<((upper+lower)/2))?
+           log2(x,(upper+lower)/2,upper):
+           log2(x,lower,(upper+lower)/2));
+  }
+
+#if __GNUC__ > 3 || __clang__
+  uint32_t constexpr clz(const uint32_t x){
+    return x==0?32:__builtin_clz(x);
+  }
+  
+  uint32_t constexpr ctz(const uint32_t x){
+    return x==0?32:__builtin_ctz(x);
+  }
+  
+  uint64_t constexpr clz(const uint64_t x){
+    return x==0?64:__builtin_clzll(x);
+  }
+  
+  uint64_t constexpr ctz(const uint64_t x){
+    return x==0?64:__builtin_ctzll(x);
+  }
+
+  uint32_t constexpr log2(const uint32_t x){
+    return x==0?0:31-__builtin_clz(x);
+  }
+  
+  uint64_t constexpr log2(const uint64_t x){
+    return x==0?0:63-__builtin_clzll(x);
+  }
+#endif
+  
+  template <typename T,typename S>
+  typename std::enable_if<std::is_unsigned<T>::value,T>::type
+  constexpr shl(const T n, const S i){
+    if ((i<digits<T>())&&(i>=0)) return n<<i;
+    return 0;
+  }
+  
+  template <typename T,typename S>
+  typename std::enable_if<std::is_unsigned<T>::value,T>::type
+  constexpr shr(const T n, const S i){
+    if ((i<digits<T>())&&(i>=0)) return n>>i;
+    return 0;
+  }
+
   template<class key_type    = int,  // int is the default, why not
            class mapped_type = int,  // int is the default, why not
            class hash        = hash_functor<key_type>,
            class equal       = std::equal_to<key_type>,
-           class comp        = typename conditional<is_injective<hash>::value,
-                                                    dummy_comp<key_type>,
-                                                    std::less<key_type>>::type,
+           class comp        = typename conditional<
+             is_injective<hash>::value,
+             dummy_comp<key_type>,
+             std::less<key_type>>::type,
            class alloc       = typename boost::container::allocator<
              typename conditional<
                std::is_same<mapped_type,void>::value,
-               std::pair<key_type,empty>,
+               std::pair<key_type,std::true_type>,
                std::pair<key_type,mapped_type>
              >::type,2>,
            bool dynamic      = true
@@ -72,7 +409,7 @@ namespace wmath{
       typedef typename alloc::size_type size_type;
       typedef typename std::result_of<hash(key_type)>::type hash_type;
       typedef typename conditional<is_same<mapped_type,void>::value,
-                                  key_type,
+                                  std::true_type,
                                   mapped_type>::type
                                   _mapped_type;
     private:
@@ -86,20 +423,6 @@ namespace wmath{
       comp  comparator;
       equal equator;
       hash  hasher;
-      /*
-      template<typename... Ts>
-      auto inline const comparator(Ts&&... args) const {
-        return comp{}(args...);
-      }
-      template<typename... Ts>
-      auto inline const equator(Ts&&... args) const {
-        return equal{}(args...);
-      }
-      template<typename... Ts>
-      auto inline const hasher(Ts&&... args) const {
-        return hash{}(args...);
-      }
-      */
       using uphold_iterator_validity = true_type;
       /* TODO
       size_type const inline masksize() const {
@@ -157,6 +480,7 @@ namespace wmath{
           const hash_type& oa,
           const hash_type& ob
           ) const {
+        
         if constexpr (is_injective<hash>::value){
           assert(equator(a,b)==(oa==ob));
           if (oa<ob) return true;
@@ -183,6 +507,7 @@ namespace wmath{
           const hash_type& oa,
           const hash_type& ob
           ) const {
+        
         if constexpr (is_injective<hash>::value){
           assert(equator(a,b)==(oa==ob));
           if (oa>ob) return true;
@@ -206,7 +531,7 @@ namespace wmath{
           ) const {
         return is_more(a,b,order(a),order(b));
       }
-      bool inline is_set(const size_type& n) const {
+      bool inline is_set(const size_type& n) const {        
         const size_type i = n/digits<size_type>();
         const size_type j = n%digits<size_type>();
         assert(i<masksize);
@@ -636,7 +961,6 @@ namespace wmath{
           const hash_type& hk,
           const size_type& ok
           ) const { return find_node(k,hk,ok,map(ok)); }
-      
       size_type const inline find_node(
           const  key_type&  k,
           const hash_type& hk
@@ -931,7 +1255,6 @@ namespace wmath{
         if (n<num_data) return;
         if (VERBOSE_PATCHMAP)
           cerr << "resizing from " << datasize << " to " << n << endl;
-        //cerr << "resizing from " << datasize << " to " << n << endl;
         if constexpr (!is_same<
             alloc,
             boost::container::allocator<std::pair<key_type,mapped_type>,2>
@@ -1060,15 +1383,12 @@ namespace wmath{
       void inline ensure_size(){
         if constexpr (!dynamic) return;
 #if defined PATCHMAP_EXPANSIVE
-        if (num_data*4<datasize*3) return;
-        if (datasize) resize((7*datasize+2)/4);
+        if (num_data*9<datasize*7) return; 
+        if (datasize) resize((12*datasize+6)/7);
         else resize(256);
         return;
 #endif
         if (num_data*8 < datasize*7 ) return;
-        //const size_type l2 = log2(datasize+1);
-        //if ( (128*15+l2*l2*16)*num_data < (128+l2*l2)*15*datasize ) return;
-        //if ( (128*7+l2*l2*8)*num_data < (128+l2*l2)*7*datasize ) return;
         size_type nextsize;
         if (datasize < 257){
           if (datasize == 0) nextsize = digits<size_type>();
@@ -1085,40 +1405,24 @@ namespace wmath{
         resize(nextsize);
       }
       _mapped_type& operator[](const key_type& k){
-        /*if (VERBOSE_PATCHMAP)
-          cerr << "operator[] " << k << endl;*/
         const size_type i = find_node(k);
-        if (VERBOSE_PATCHMAP)
-          cerr << "i = " << i << endl; 
-        if (i<datasize) {
-          if constexpr (is_same<mapped_type,void>::value) return data[i].first;
-          else return data[i].second;
-        }
-        //assert(find_node_bruteforce(k)==~size_type(0));
+        if (VERBOSE_PATCHMAP) cerr << "i = " << i << endl; 
+        if (i<datasize) return data[i].second;
         ensure_size();
-        //assert(check_ordering());
         const size_type j = reserve_node(k);
-        if (VERBOSE_PATCHMAP)
-          cerr << "j = " << j << endl;
-        //data[j].first = k;
-        //data[j] = value_type();
-        if constexpr (is_same<void,mapped_type>::value) {
-          allocator_traits<alloc>::construct(allocator,data+j,k,wmath::empty());
-        } else {
-          allocator_traits<alloc>::construct(allocator,data+j,k,mapped_type());
-        }
-        //assert(check_ordering());
-        //assert(find_node_bruteforce(k)==j);
-        //assert(find_node(k)==j);
-        assert(check_ordering(j));
-        if constexpr (is_same<mapped_type,void>::value) return data[i].first;
-        else return data[j].second;
+        if (VERBOSE_PATCHMAP) cerr << "j = " << j << endl;
+        allocator_traits<alloc>::construct(allocator,data+j,k,_mapped_type());
+        return data[j].second;
       }
       const _mapped_type& operator[](const key_type& k) const {
         const size_type i = find_node(k);
-        assert(i<datasize);
-        if constexpr (is_same<void,mapped_type>::value) return data[i].first;
-        return data[i].second; // this is only valid if key exists!
+        if (i<datasize) data[i].second;
+        else throw std::out_of_range(
+            std::string(typeid(*this).name())
+            +".const_noconst_at("+typeid(k).name()+" k)"
+            +"key not found, array index "
+            +to_string(i)+" out of bounds"
+           );
       }
       _mapped_type& at(const key_type& k){
         return const_noconst_at(*this,k);
@@ -1127,11 +1431,6 @@ namespace wmath{
         return const_noconst_at(*this,k);
       }
       size_type const inline count(const key_type& k) const {
-        //if (VERBOSE_PATCHMAP)
-        //  cerr << k << " " << find_node_bruteforce(k) << " "
-        //       << find_node(k) << " " << datasize << endl;
-        //assert(check_ordering());
-        //assert(find_node(k)==find_node_bruteforce(k));
         return (find_node(k)<datasize);
       }
       double average_offset(){
@@ -1242,15 +1541,11 @@ namespace wmath{
             if (hint>=map->datasize) hint = ~size_type(0);
           }
           void inline unsafe_increment(){ // assuming hint is valid
-            //cout << "unsafe_increment() " << hint << " " << key << endl;
             if (++hint>=map->datasize){
-              //cout << "test1" << endl;
-              //cout << "becoming an end()" << endl;
               hint=~size_type(0);
               return;
             }
             while(true){
-              //cout << "test2" << endl;
               const size_type k = hint/digits<size_type>();
               const size_type l = hint%digits<size_type>();
               const size_type m = (~size_type(0))>>l; 
@@ -1261,18 +1556,12 @@ namespace wmath{
               const size_type s = clz(p);
               if (s==0) break;
               hint+=s;
-              //cout << hint << " " << s << endl;
               if (hint>=map->datasize){
-                //cout << "test3" << endl;
-                //cout << "becoming an end()" << endl;
                 hint=~size_type(0);
                 return;
               }
             }
-            //cout << "test4" << endl;
-            //cout << "new hint=" << hint << endl;
             key = map->data[hint].first;
-            //cout << "new key=" << key << endl;
           }
           void inline unsafe_decrement(){ // assuming hint is valid
             if (--hint>=map->datasize){
@@ -1419,8 +1708,6 @@ namespace wmath{
           template<bool is_const_other>
           bool operator==(
               const const_noconst_iterator<is_const_other>& o) const {
-            //cout << "comparing " << hint << " " << key << " with "
-            //     << o.hint << " " << key << endl;
             if ((hint>=map->datasize)&&(o.hint>=o.map->datasize)) return true;
             if ((hint>=map->datasize)||(o.hint>=o.map->datasize)) return false;
             if (key!=o.key) return false;
@@ -1484,7 +1771,6 @@ namespace wmath{
             }
           }
           const_noconst_iterator<is_const>& operator++(){   // prefix
-            //cout << "operator++()" << endl;
             update_hint();
             unsafe_increment();
             return *this;
@@ -1567,44 +1853,36 @@ namespace wmath{
     typedef const_noconst_iterator<false> iterator;
     typedef const_noconst_iterator<true>  const_iterator;    
     iterator begin(){
-      //cout << "begin()" << endl;
       const size_type i = find_first();
-      //cout << "this should call constructor 2" << endl;
       return iterator(i,data[i].first,this);
     }
     const_iterator begin() const {
-      //cout << "begin()" << endl;
       const size_type i = find_first();
-      //cout << "this should call constructor 2" << endl;
       return const_iterator(i,data[i].first,this);
     }
     const_iterator cbegin() const {
-      //cout << "cbegin()" << endl;
       const size_type i = find_first();
-      //cout << "this should call constructor 2" << endl;
       return const_iterator(i,data[i].first,this);
     }
     iterator end() {
-      //cout << "end()" << endl;
       const size_type i = find_first();
-      //cout << "this should call constructor 1" << endl;
       return iterator(~size_type(0),this);
     }
     const_iterator end() const {
-      //cout << "end()" << endl;
-      //cout << "this should call constructor 2" << endl;
       return const_iterator(~size_type(0),this);
     }
     const_iterator cend() const {
-      //cout << "cend()" << endl;
-      //cout << "this should call constructor 2" << endl;
       return const_iterator(~size_type(0),this);
     }
     // void swap(unordered_patch_map&); // TODO
-    size_type max_size()         const{return numeric_limits<size_type>::max();}
-    bool empty()                 const{return (num_data==0);}
-    size_type bucket_count()     const{return datasize;}
-    size_type max_bucket_count() const{return numeric_limits<size_type>::max();}
+    size_type max_size()         const {
+      return std::numeric_limits<size_type>::max();
+    }
+    bool empty()                 const {return (num_data==0);}
+    size_type bucket_count()     const {return datasize;}
+    size_type max_bucket_count() const {
+      return std::numeric_limits<size_type>::max();
+    }
     void rehash(const size_type& n) { if (n>=size()) resize(n); }
     void reserve(const size_type& n){ if (3*n>=2*(size()+1)) resize(n*3/2); }
     pair<iterator,bool> insert ( const value_type& val ){
@@ -1623,7 +1901,7 @@ namespace wmath{
       const size_type j = reserve_node(key_of(val));
       if constexpr (is_same<void,mapped_type>::value)
         allocator_traits<alloc>::construct(allocator,data+j,
-            std::pair(val,wmath::empty{}));
+            std::pair(val,true_type{}));
       else
         allocator_traits<alloc>::construct(allocator,data+j,val);
       return {{j,key_of(val),this},true};
@@ -1645,10 +1923,7 @@ namespace wmath{
       if (i<datasize) return {iterator(i,key_of(val),this),false};
       ensure_size();
       const size_type j = reserve_node(key_of(val),hint.hint);
-      if constexpr (is_same<void,mapped_type>::value)
-        allocator_traits<alloc>::construct(allocator,data+j,{val,{}});
-      else
-        allocator_traits<alloc>::construct(allocator,data+j,val);
+      allocator_traits<alloc>::construct(allocator,data+j,{val,{}});
       return {{j,key_of(val),this},true};
     }
     template <class InputIterator>
@@ -1725,7 +2000,16 @@ namespace wmath{
       for (auto it=first;it!=last;it=erase(it));
     }
 
-    // void max_load_factor(float z);
+    [[deprecated(
+        "disabled for performance reasons"
+    )]] void max_load_factor(float z) {
+      // m = number of elements ; n = number of buckets
+      // n*load_factor >= m
+      // n*mul_n >= m*mul_m
+      size_type mul_n =  ceil(z*16);
+      size_type mul_m = floor(z*16);
+      return;
+    }
   }; 
 
   /* TODO
@@ -1750,47 +2034,35 @@ namespace wmath{
            class alloc       = typename boost::container::allocator<
              typename conditional<
                std::is_same<mapped_type,void>::value,
-               std::pair<key_type,empty>,
+               std::pair<key_type,true_type>,
                std::pair<key_type,mapped_type>
              >::type,2>
           >
   using static_patchmap =
     ordered_patch_map<key_type,mapped_type,hash,equal,comp,alloc,false>;
   
-  template<class key_type    = int,  // int is the default, why not
-           class mapped_type = int,  // int is the default, why not
+  template<class key_type,           // unordered_map has no default key_type
+           class mapped_type,        // unordered_map has no default mapped_type
            class hash        = hash_functor<key_type>,
            class equal       = std::equal_to<key_type>,
+           class alloc       = typename // mapped_type must not be void
+             boost::container::allocator<std::pair<key_type,mapped_type>,2>,
            class comp        = typename conditional<is_injective<hash>::value,
-                                                    dummy_comp<key_type>,
-                                                    std::less<key_type>>::type,
-           class alloc       = typename boost::container::allocator<
-             typename conditional<
-               std::is_same<mapped_type,void>::value,
-               std::pair<key_type,empty>,
-               std::pair<key_type,mapped_type>
-             >::type,2>
+             dummy_comp<key_type>,typename std::less<key_type>::type>::type
           >
   using unordered_map =
-    ordered_patch_map<key_type,mapped_type,hash,equal,alloc,comp,true>;
+    ordered_patch_map<key_type,mapped_type,hash,equal,alloc,comp>;
   
-  template<class key_type    = int,  // int is the default, why not
+  template<class key_type,           // unordered_set has no default key_type
            class hash        = hash_functor<key_type>,
            class equal       = std::equal_to<key_type>,
+           class alloc       = typename
+             boost::container::allocator<pair<key_type,true_type>,2>,
            class comp        = typename conditional<is_injective<hash>::value,
-                                                    dummy_comp<key_type>,
-                                                    std::less<key_type>>::type,
-           class alloc       =
-             typename boost::container::allocator
-             <
-               std::pair<key_type,empty>,2
-             >
+             dummy_comp<key_type>,typename std::less<key_type>::type>::type
           >
   using unordered_set =
-    ordered_patch_map<key_type,void,hash,equal,alloc,comp,true>;
+    ordered_patch_map<key_type,void,hash,equal,alloc,comp>;
   
 }
-
-
-
 #endif // ORDERED_PATCH_MAP_H
