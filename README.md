@@ -21,6 +21,5 @@ If you are interested in understanding the patchmap or want to implement it in y
 favourite programming language you should have a look at ordered_patch_map_v0.hpp.
 This is a oversimplified the prototype, to ease the understanding.
 ordered_patch_map.hpp contains many c++ specific things, generics, templates, etc.
-I'm sorry, or am I?
 
-Compile with -mpclmul -std=c++17 -DNDEBUG
+Compile with -std=c++17 -DNDEBUG
