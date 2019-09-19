@@ -1,11 +1,19 @@
 # patchmap
 A fast and memory efficient hashmap using sorting to resolve collisions
 
-> #include "patchmap.hpp"
-> whash::patchmap<int,int> hash_table;
-> hash_table[7] = 77;
-
+main.cpp
+```C++
+#include <iostream>
+#include "patchmap.hpp"
+int main() {
+  whash::patchmap<int,int> hash_table;
+  hash_table[7] = 77;
+  for (const auto& elem : hash_table) std::cout << elem.first << " " << elem.second << std::endl;
+}
+```
+```bash
 > g++ -std=c++17 -DNDEBUG main.cpp
+```
 
 This hashmap is inspired by the 1973 publication "Ordered hash tables".
 But instead of resolving the collisions via an ordering of the keys themselves
@@ -28,5 +36,3 @@ If you are interested in understanding the patchmap or want to implement it in y
 favourite programming language you should have a look at patchmap_v0.hpp.
 This is a oversimplified the prototype, to ease the understanding without templates
 and binary search instead of interpolation search.
-
-Compile with -std=c++17 -DNDEBUG
