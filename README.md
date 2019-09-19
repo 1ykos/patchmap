@@ -8,7 +8,9 @@ main.cpp
 int main() {
   whash::patchmap<int,int> hash_table;
   hash_table[7] = 77;
-  for (const auto& elem : hash_table) std::cout << elem.first << " " << elem.second << std::endl;
+  for (const auto& elem : hash_table) {
+    std::cout << elem.first << " " << elem.second << std::endl;
+  }
 }
 ```
 ```bash
