@@ -43,3 +43,8 @@ If you are interested in understanding the patchmap or want to implement it in y
 favourite programming language you should have a look at patchmap_v0.hpp.
 This is a oversimplified the prototype, to ease the understanding without templates
 and binary search instead of interpolation search.
+
+#TODO
+
+ - use boosts advanced allocation to make use of expansion and reallocation
+ - re-unify sparse_patchmap.hpp and patchmap.hpp
