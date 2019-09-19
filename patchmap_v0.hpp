@@ -4,8 +4,6 @@
 #include <algorithm>
 #include <iostream>
 
-#include "wmath.hpp"
-
 using std::swap;
 using std::min;
 using std::cerr;
@@ -18,6 +16,56 @@ using std::fixed;
 using std::setprecision;
 
 constexpr size_t VERBOSITY = 0;
+
+template<typename T>
+typename std::enable_if<std::is_unsigned<T>::value,tuple<T,T>>::type
+constexpr long_mul(const T& a, const T& b);
+
+// calculate a * b = r0r1
+template<typename T>
+typename std::enable_if<std::is_unsigned<T>::value,tuple<T,T>>::type
+constexpr long_mul(const T& a, const T& b){
+  const T N  = digits<T>()/2;
+  const T t0 = (a>>N)*(b>>N);
+  const T t1 = ((a<<N)>>N)*(b>>N);
+  const T t2 = (a>>N)*((b<<N)>>N);
+  const T t3 = ((a<<N)>>N)*((b<<N)>>N);
+  const T t4 = t3+(t1<<N);
+  const T r1 = t4+(t2<<N);
+  const T r0 = (r1<t4)+(t4<t3)+(t1>>N)+(t2>>N)+t0;
+  return {r0,r1};
+}
+
+#ifdef __SIZEOF_INT128__
+template<>
+tuple<uint64_t,uint64_t>
+constexpr long_mul(const uint64_t& a, const uint64_t& b){
+  unsigned __int128 r = ((unsigned __int128)(a))*((unsigned __int128)(b));
+  return {r>>64,r};
+}
+#endif
+
+template<>
+tuple<uint8_t,uint8_t> constexpr long_mul(const uint8_t& a,const uint8_t& b){
+  const int_fast16_t r = int_fast16_t(a)*int_fast16_t(b);
+  return {uint8_t(r>>8),uint8_t(r)};
+}
+
+template<>
+tuple<uint16_t,uint16_t> constexpr long_mul(
+    const uint16_t& a,
+    const uint16_t& b){
+  const int_fast32_t r = int_fast32_t(a)*int_fast32_t(b);
+  return {uint16_t(r>>16),uint16_t(r)};
+}
+
+template<>
+tuple<uint32_t,uint32_t> constexpr long_mul(
+    const uint32_t& a,
+    const uint32_t& b){
+  const int_fast64_t r = int_fast64_t(a)*int_fast64_t(b);
+  return {uint32_t(r>>32),uint32_t(r)};
+}
 
 class fibonacci_groth_policy{
   private:
