@@ -778,24 +778,36 @@ namespace whash{
           ) const {
         assert(lo<=hi||datasize==0);
         size_type mi;
+        //size_t i = 0;
         while(true) {
+          //if (i++>16) cout << lo << " " << hi << endl;
           //cout << lo/double(datasize) << " " << hi/double(datasize) << endl;
-          //if (!(lo<hi)) return ~size_type(0);
-          if (hi-lo<2) {
-            if (is_set_lo&&is_set_hi) return ~size_type(0);
-            if (is_set(lo)) if (equator(k,data[lo].first)) return lo;
-            if (is_set(hi)) if (equator(k,data[hi].first)) return hi;
-            return ~size_type(0);
-          }
+          //cerr << lo << " " << hi << " " << datasize << endl;
           if (hi-lo<8) {
-            if (is_set_hi && is_set_lo) {
-              mi = lo + ((hi-lo)>>1);
-            } else if (is_set_lo) {
-              mi = lo + ((hi-lo+2)>>2);
-            } else if (is_set_hi) {
-              mi = hi - ((hi-lo+2)>>2);
+            if (hi-lo<4) {
+              if (hi-lo<2) {
+                if (hi-lo<1) {
+                  if (is_set(lo)) if (equator(k,data[lo].first)) return lo;
+                  return ~size_type(0);
+                } else {
+                  if (is_set_lo&&is_set_hi) return ~size_type(0);
+                  if (is_set(lo)) if (equator(k,data[lo].first)) return lo;
+                  if (is_set(hi)) if (equator(k,data[hi].first)) return hi;
+                  return ~size_type(0);
+                }
+              } else {
+                mi = lo + ((hi-lo)>>1);
+              }
             } else {
-              return ~size_type(0);
+              if (is_set_hi && is_set_lo) {
+                mi = lo + ((hi-lo)>>1);
+              } else if (is_set_lo) {
+                mi = lo + ((hi-lo+2)>>2);
+              } else if (is_set_hi) {
+                mi = hi - ((hi-lo+2)>>2);
+              } else {
+                return ~size_type(0);
+              } 
             }
           } else {
             if (is_set_hi && is_set_lo) {
