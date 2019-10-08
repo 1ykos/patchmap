@@ -36,12 +36,14 @@ namespace whash{
   using std::is_fundamental;
   using std::is_same;
   using std::is_trivially_copyable;
+  using std::make_unique;
   using std::numeric_limits;
   using std::pair;
   using std::setw;
+  using std::swap;
   using std::true_type;
   using std::tuple;
-  using std::swap;
+  using std::unique_ptr;
 
   template<class T>
   double frac(const T& n){
@@ -185,6 +187,10 @@ namespace whash{
   size_t constexpr hash() {
     return 0;
   }
+  
+  size_t constexpr unhash() {
+    return 0;
+  }
 
   size_t constexpr hash(const size_t& seed,const size_t& n) {
     return seed^distribute(n);
@@ -245,7 +251,7 @@ namespace whash{
   }
 
   uint32_t constexpr hash(uint32_t v){
-    const uint32_t  a = 0x55555555ul;
+    const uint32_t  a = 3370923577ul;
     v^= v>>16;
     v*= a;
     v^= v>>16;
@@ -253,7 +259,7 @@ namespace whash{
   }
   
   uint32_t constexpr unhash(uint32_t v){
-    const uint32_t  a = 0x55555555ul;
+    const uint32_t  a = 3370923577ul;
     v^= v>>16;
     v*= modular_inverse(a);
     v^= v>>16;
@@ -269,7 +275,7 @@ namespace whash{
   }
 
   uint64_t constexpr hash(uint64_t v){
-    const uint64_t  a = 0x5555555555555555ull;
+    const uint64_t  a = 15864664792644967873ull;
     v^= v>>32;
     v*= a;
     v^= v>>32;
@@ -277,7 +283,7 @@ namespace whash{
   }
   
   uint64_t constexpr unhash(uint64_t v){
-    const uint64_t  a = 0x5555555555555555ull;
+    const uint64_t  a = 15864664792644967873ull;
     v^= v>>32;
     v*= modular_inverse(a);
     v^= v>>32;
@@ -357,7 +363,7 @@ namespace whash{
       return hash(k);
     }
     auto constexpr unhash(const K& k) const {
-      if constexpr (is_injective::value) return unhash(k);
+      if constexpr (is_injective::value) return whash::unhash(k);
       else return K(0);
     }
   };
@@ -1006,6 +1012,7 @@ namespace whash{
         assert((mok<datasize)||(datasize==0));
         if (datasize==0) return ~size_type(0);
         //cout << "find_node " << frac(ok) << " " << datasize << endl;
+        //cout << mok/double(datasize) << endl;
         if (!is_set(mok)) return ~size_type(0);
         //cout << "mok is set " << frac(data[mok].first) << endl;
         if constexpr (has_unhash<hash>::value) {
@@ -1890,33 +1897,51 @@ namespace whash{
           }
           reference operator*() {
             update_hint();
-            return map->data[hint];
+            return {map->hasher.unhash(map->data[hint].first),
+                    map->data[hint].second};
           }
-          pointer operator->() {
+          unique_ptr<pair<const key_type,mapped_type&>> operator->() {
             update_hint();
-            return &(map->data[hint]);
+            return make_unique<pair<const key_type,mapped_type&>>(
+                map->hasher.unhash(map->data[hint].first),
+                map->data[hint].second);
           }
-          reference operator*() const {
+          pair<const key_type,mapped_type&> operator*() const {
             size_type i;
-            if (hint>=map->datasize){
+            if (hint>=map->datasize) {
               i = map->find_node(key);
-            } else if (map->data[hint]!=key){
-              i = map->find_node(key,hint);
             } else {
-              i = hint;
+              if (map->is_set(hint)) {
+                if (map->data[hint]!=key) {
+                  i = hint;
+                } else {
+                  i = map->find_node(key);
+                }
+              } else {
+                i = map->find_node(key);
+              }
             }
-            return map->data[i];
+            return {map->hasher.unhash(map->data[i].first),
+                    map->data[i].second};
           }
-          pointer operator->() const {
+          unique_ptr<pair<const key_type,mapped_type&>> operator->() const {
             size_type i;
-            if (hint>=map->datasize){
+            if (hint>=map->datasize) {
               i = map->find_node(key);
-            } else if (map->data[hint]!=key){
-              i = map->find_node(key,hint);
             } else {
-              i = hint;
+              if (map->is_set(hint)) {
+                if (map->data[hint]!=key) {
+                  i = hint;
+                } else {
+                  i = map->find_node(key);
+                }
+              } else {
+                i = map->find_node(key);
+              }
             }
-            return &(map->data[i]);
+            return make_unique<pair<const key_type,mapped_type&>>(
+                map->hasher.unhash(map->data[hint].first),
+                map->data[hint].second);
           }
     };
     typedef const_noconst_iterator<false> iterator;
