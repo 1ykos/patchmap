@@ -138,7 +138,7 @@ namespace whash{
     return (a+36690)*43581;
   }
 
-  uint32_t const distribute(uint32_t a){
+  uint32_t constexpr distribute(uint32_t a){
     const uint32_t  b = 0x55555555ul;
     const uint32_t c0 = 3107070805ul;
     const uint32_t c1 = 3061963241ul;
