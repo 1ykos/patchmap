@@ -1677,18 +1677,12 @@ namespace whash{
         public:
           typedef typename alloc::difference_type difference_type;
           typedef typename alloc::value_type value_type;
-          typedef typename
-            conditional<is_const,
-                        const typename alloc::reference,
-                              typename alloc::reference
-                       >::type
-            reference;
-          typedef typename
-            conditional<is_const,
-                        const typename alloc::pointer,
-                              typename alloc::pointer
-                       >::type
-            pointer;
+          typedef pair<const key_type,
+            typename conditional<is_const,const mapped_type&,mapped_type&>::type
+          > reference;
+          typedef std::unique_ptr<pair<const key_type,
+            typename conditional<is_const,const mapped_type&,mapped_type&>::type
+          >> pointer;
           typedef std::bidirectional_iterator_tag iterator_category;
           const_noconst_iterator(){
             //cout << "constructor 0" << endl;
