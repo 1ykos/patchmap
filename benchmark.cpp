@@ -62,6 +62,9 @@
 #ifdef ROBINMAP
 #include "robin_hood.h"
 #endif
+#ifdef HORDI
+#include "hash_set.h"
+#endif
 
 #include <stdio.h>
 #include <proc/readproc.h>
@@ -120,7 +123,7 @@ int main(int argc, char** argv){
   tsl::sparse_map<uint64_t,uint64_t> test;
 #endif
 #ifdef PATCHMAP
-  whash::ordered_patch_map<uint64_t,uint64_t> test;
+  whash::patchmap<uint64_t,uint64_t> test;
 #endif
 #ifdef SPARSE_PATCHMAP
   wmath::sparse_patchmap<uint64_t,uint64_t> test;
@@ -173,6 +176,9 @@ int main(int argc, char** argv){
 #endif
 #ifdef SPARSE
   wmath::sparse_map<uint64_t,uint64_t> test;
+#endif
+#ifdef HORDI
+  hordi::hash_map<uint64_t,uint64_t> test;
 #endif
   std::uniform_int_distribution<size_t> distr;
   double counter = 0;
@@ -288,12 +294,14 @@ int main(int argc, char** argv){
 #endif
     }
     //cout << i*4096 << " " << num_set << " " << test.num_elem << endl;
-    /*cout << memory/(4096)        << " "
+    /*
+    cout << memory/(4096)        << " "
          << insert_time/(4096)   << " "
          << delete_time/(4096)   << " "
          << find_time/(4096)     << " "
          << not_find_time/(4096) << endl;*/
   }
+  
   cout << typical_memory/N        << " "
        << typical_insert_time/N   << " "
        << typical_delete_time/N   << " "
