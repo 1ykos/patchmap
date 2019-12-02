@@ -6,10 +6,9 @@
 #include <iomanip>
 #include <unordered_map>
 #include <chrono>
-#include "ordered_patch_map.hpp"
+#include "patchmap.hpp"
 
-using wmath::ordered_patch_map;
-using wmath::reflect;
+using whash::patchmap;
 
 using std::cout;
 using std::endl;
@@ -24,14 +23,14 @@ using std::allocator_traits;
 
 void test_uint32_t(){
   std::minstd_rand mr;
-  const size_t N = 1ull<<12;
+  const size_t N = 1ull<<8;//1ull<<12;
   uint32_t * keys   = new uint32_t[N];
   for (size_t i=0;i!=N;++i){
     keys[i]   = i;
   }
   std::random_shuffle(keys,keys+N);
   cout << "initialized key and value test data" << endl;
-  ordered_patch_map<uint32_t,uint32_t> test;
+  patchmap<uint32_t,uint32_t> test;
   cout << sizeof(test) << endl;
   for (size_t i=0;i!=N;++i){
     if ((test.size()!=i)||(test.test_size()!=i)){
@@ -54,13 +53,14 @@ void test_uint32_t(){
   }
   for (size_t i=0;i!=N;++i){
     if (test.at(keys[i]) != keys[i]){
-      cout << "test failed, inserted key value pair does not match" << endl;
+      cout << "test failed, inserted key value pair does not match 1" << endl;
       exit(1);
     }
   }
   for (auto it=test.begin();it!=test.end();++it){
     if (it->first!=it->second){
-      cout << "test failed, inserted key value pair does not match" << endl;
+      cout << " >" << it->first << "< >" << it->second << "< " << endl;
+      cout << "test failed, inserted key value pair does not match 2" << endl;
       exit(1);
     }
   }
@@ -98,7 +98,11 @@ void test_uint32_t(){
     }
   }
   cout << "no key that should not be there has been found" << endl;
-  cout << "squeezing ordered_patch_map very hard" << endl;
+  for (auto it=test.begin();it!=test.end();++it) {
+    ++it->second;
+  }
+  cout << "using iterators on uint32_t seems to work too" << endl;
+  cout << "squeezing patchmap very hard" << endl;
   test.resize(test.size());
   if (!test.check_ordering()){
     cout << "ordering of ordered_patch map is broken" << endl;
@@ -110,7 +114,10 @@ void test_uint32_t(){
   //  cout << test.size() << endl;
   //  test.erase(test.begin());
   //}
-  for (auto it=test.begin();it!=test.end();it=test.erase(it));
+  /*for (auto it=test.begin();it!=test.end();it=test.begin()) {
+    test.erase(it->first);
+  }*/
+  for (auto it=test.begin();it!=test.end();it=test.erase(it)) test.print();
   if (test.size()!=0) {
     cout << "test failed, everything should have been erased, but was not"
          << endl;
@@ -122,7 +129,7 @@ void test_uint32_t(){
 }
 
 void test_string(){
-  ordered_patch_map<string,string> test;
+  patchmap<string,string> test;
   vector<tuple<string,string>> testvalues
   {
     {"hallo","ollah"},
@@ -154,6 +161,14 @@ void test_string(){
            << endl;
       exit(1);
     };
+  }
+  for (auto it=test.begin();it!=test.end();++it) it->second=it->first;
+  for (auto it=test.begin();it!=test.end();++it) {
+    if (it->second!=it->first) {
+      cout << "test failed, iterator assigment for string does not work"
+           << endl;
+      exit(1);
+    }
   }
   cout << "test_string() was successfully executed" << endl;
 }

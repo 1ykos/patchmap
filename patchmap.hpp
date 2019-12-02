@@ -492,7 +492,7 @@ namespace whash{
       comp  comparator;
       equal equator;
       hash  hasher;
-      using uphold_iterator_validity = false_type;
+      using uphold_iterator_validity = true_type;
       // size_type const inline masksize() const {
       //  return (datasize+digits<size_type>()-1)/digits<size_type>();
       //}
@@ -960,8 +960,9 @@ namespace whash{
             return ~size_type(0);
           }
           if (is_equal({k,ok},data[mi].first)) return mi;
-          const hash_type omi = (has_unhash<hash>::value)?
-            data[mi].first:order(data[mi].first);
+          hash_type omi;
+          if constexpr (has_unhash<hash>::value) omi = data[mi].first;
+          else                                   omi = order(data[mi].first);
           if (ok<omi) {
             hi = mi;
             ohi = omi;
@@ -998,8 +999,8 @@ namespace whash{
       size_type inline find_node(
           const key_type &   k,
           const hash_type&  ok,
-          const size_type& mok)
-        const {
+          const size_type& mok  ) const
+      {
         assert((mok<datasize)||(datasize==0));
         if (datasize==0) return ~size_type(0);
         if (!is_set(mok)) return ~size_type(0);
@@ -1008,8 +1009,9 @@ namespace whash{
         } else {
           if (equator(data[mok].first,k)) return mok;
         }
-        const hash_type omi = (has_unhash<hash>::value)?
-          data[mok].first:order(data[mok].first);
+        hash_type omi;
+        if constexpr (has_unhash<hash>::value) omi = data[mok].first;
+        else                                   omi = order(data[mok].first);
         if (omi<ok) {
           return find_node_interpol(k,ok,mok,
               mok       ,omi          ,true ,
@@ -1051,15 +1053,15 @@ namespace whash{
               _mapped_type&>::type
       static inline const_noconst_at(map_type& hashmap,const key_type& k) {
         size_type i = hashmap.find_node(k);
-        if (i<hashmap.datasize){
+        if (i<hashmap.datasize) {
           assert(hashmap.is_set(i));
-          hashmap.data[i].second;
         } else throw std::out_of_range(
             std::string(typeid(hashmap).name())
             +".const_noconst_at("+typeid(k).name()+" k)"
             +"key not found, array index "
-            +to_string(i)+" out of bounds"
+            +std::to_string(i)+" out of bounds"
            );
+        return hashmap.data[i].second;
       }
       void const resize_out_of_place(const size_type& n){
         size_type old_datasize = n;
@@ -1218,13 +1220,14 @@ namespace whash{
         cerr << datasize << " " << num_data << endl;
         for (size_type i=0;i!=datasize;++i) {
           cout << std::fixed << std::setprecision(16);
-          const size_type  ok = has_unhash<hash>::value?
-            data[i].first:order(data[i].first);
+          hash_type  ok;
+          if constexpr (has_unhash<hash>::value) ok = data[i].first;
+          else                                   ok = order(data[i].first);
           const size_type mok = map(ok);
           if (is_set(i)) cout << setw(6) << i;
           else           cout << "      "    ;
-                         cout << setw(20) << frac(uint32_t(ok))
-                              << setw(20) << frac(uint32_t(data[i].second));
+                         cout << setw(20) << frac(ok)
+                              << setw(20) << frac(data[i].second);
           if (is_set(i)) cout << setw( 8) << mok
                               << setw( 8) << int(mok)-int(i);
           else           cout << setw( 8) << i
@@ -1459,7 +1462,7 @@ namespace whash{
         if (i<datasize) data[i].second;
         else throw std::out_of_range(
             std::string(typeid(*this).name())
-            +".const_noconst_at("+typeid(k).name()+" k)"
+            +".operator["+typeid(k).name()+" k]"
             +"key not found, array index "
             +to_string(i)+" out of bounds"
            );
@@ -1568,9 +1571,14 @@ namespace whash{
         private:
           void inline update_hint(){
             if constexpr (!uphold_iterator_validity::value) return;
-            if (hint<map->datasize)
-              if (equal{}(map->data[hint].first,key)) return;
-            hint = map->find_node(key,hint);
+            if (hint<map->datasize) {
+              if constexpr (has_unhash<hash>::value) {
+                if (map->equator(unhash(map->data[hint].first),key)) return;
+              } else {
+                if (map->equator(map->data[hint].first,key)) return;
+              }
+            }
+            hint = map->find_node(key);
             if (hint>=map->datasize) hint = ~size_type(0);
           }
           void inline unsafe_increment(){ // assuming hint is valid
@@ -1594,7 +1602,19 @@ namespace whash{
                 return;
               }
             }
-            key = map->data[hint].first;
+            if constexpr (is_same<mapped_type,void>::value) {
+              if constexpr (has_unhash<hash>::value) {
+                key = unhash(map->data[hint]);
+              } else {
+                key = map->data[hint];
+              }
+            } else {
+              if constexpr (has_unhash<hash>::value) {
+                key = unhash(map->data[hint].first);
+              } else {
+                key = map->data[hint].first;
+              }
+            }
           }
           void inline unsafe_decrement(){ // assuming hint is valid
             if (--hint>=map->datasize){
@@ -1663,7 +1683,7 @@ namespace whash{
             const size_type m = (~size_type(0))<<(digits<size_type>()-l-1);
                   size_type i = 0;
                   size_type p = popcount(map->mask[k]&m)-1;
-            while (i+p<n){
+            while (i+p<n) {
               if (--k>=map->mapsize){
                 hint=~size_type(0);
                 return;
@@ -1686,8 +1706,8 @@ namespace whash{
             >::type,
             typename conditional<
               is_same<void,mapped_type>::value,
-              const key_type,
-              pair<const key_type,_mapped_type&>
+              key_type,
+              pair<key_type,_mapped_type>&
             >::type
           >::type reference;
           typedef typename conditional<
@@ -1866,19 +1886,31 @@ namespace whash{
           const_noconst_iterator<is_const> operator-(const size_type& n) const{
             return (const_noconst_iterator<is_const>(*this)-=n);
           }
-          reference operator*() {
+          auto operator*() {
             update_hint();
-            return {map->hasher.unhash(map->data[hint].first),
-                    map->data[hint].second};
+            if constexpr (is_same<void,mapped_type>::value) {
+              if constexpr (has_unhash<hash>::value) {
+                return map->hasher.unhash(map->data[hint].first);
+              } else {
+                return map->data[hint].first;
+              }
+            }
+            if constexpr (has_unhash<hash>::value) {
+              return pair<const key_type,mapped_type&>(
+                  map->hasher.unhash(map->data[hint].first),
+                  map->data[hint].second);
+            } else {
+              return pair<const key_type&,mapped_type&>(map->data[hint]);
+            }
           }
           auto operator->() {
             update_hint();
             if constexpr (is_same<void,mapped_type>::value) {
               if constexpr (has_unhash<hash>::value) {
                 return make_unique<key_type>(
-                    map->hasher.unhash(map->data[hint]));
+                    map->hasher.unhash(map->data[hint].first));
               } else {
-                return &map->data[hint];
+                return &map->data[hint].first;
               }
             }
             if constexpr (has_unhash<hash>::value) {
@@ -1904,17 +1936,19 @@ namespace whash{
                 i = map->find_node(key);
               }
             }
-            if constexpr (has_unhash<hash>::value) {
-              if constexpr (is_same<void,mapped_type>::value) {
-                return map->hasher.unhash(map->data[i].first);
+            if constexpr (is_same<void,mapped_type>::value) {
+              if constexpr (has_unhash<hash>::value) {
+                return map->hasher.unhash(map->data[hint].first);
               } else {
-                return pair<const key_type,mapped_type&>
-                    {map->hasher.unhash(map->data[i].first), 
-                     map->data[i].second};
+                return map->data[hint].first;
               }
+            }
+            if constexpr (has_unhash<hash>::value) {
+              return pair<const key_type,mapped_type&>(
+                  map->hasher.unhash(map->data[hint].first),
+                  map->data[hint].second);
             } else {
-              return pair<const key_type&,mapped_type&>{map->data[i].first, 
-                      map->data[i].second};
+              return pair<const key_type&,mapped_type&>(map->data[hint]);
             }
           }
           auto operator->() const {
@@ -1934,21 +1968,19 @@ namespace whash{
             }
             if constexpr (is_same<void,mapped_type>::value) {
               if constexpr (has_unhash<hash>::value) {
-                return make_unique<key_type>(map->hasher.unhash(map->data[i]));
+                return make_unique<key_type>(
+                    map->hasher.unhash(map->data[hint].first));
               } else {
-                return &map->data[hint];
+                return &map->data[hint].first;
               }
             }
             if constexpr (has_unhash<hash>::value) {
               return make_unique<pair<const key_type,mapped_type&>>(
-                  map->hasher.unhash(map->data[i].first),
-                  map->data[i].second);
+                  map->hasher.unhash(map->data[hint].first),
+                  map->data[hint].second);
             } else {
-                return &map->data[i];
+                return &map->data[hint];
             }
-            return make_unique<pair<const key_type,mapped_type&>>(
-                map->hasher.unhash(map->data[i].first),
-                map->data[i].second);
           }
     };
     typedef const_noconst_iterator<false> iterator;
@@ -2096,7 +2128,7 @@ namespace whash{
     iterator erase(const_noconst_iterator<is_const> position){
       iterator it(position);
       ++it;
-      erase(position.key);//,position.hint);
+      erase(position.key);
       return it;
     }
     template<bool is_const>
