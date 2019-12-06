@@ -45,7 +45,8 @@ factors around 96% at the cost of O((1-a)¯²) reordering operations for inserti
 and deletions however.
 
 If you are interested using this container contact me and I will make it work for you,
-if it does not just work out of the box.
+if it does not just work out of the box. No, just contact me regardless, I'm curious
+how it works for you!
 
 If you are interested in understanding the patchmap or want to implement it in your
 favourite programming language you should have a look at patchmap_v0.hpp.
