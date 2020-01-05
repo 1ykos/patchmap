@@ -309,6 +309,10 @@ namespace whash{
     return (uint64_t(v0)<<32)^(uint64_t(v1));
   }
   
+  uint64_t constexpr hash(const uint32_t& v0,const uint64_t& v1){
+    return hash(uint64_t(v0))^v1;
+  }
+  
   template<typename T,size_t... I>
   size_t constexpr hash_tuple_impl(const T& t, index_sequence<I...>){
     return hash(std::get<I>(t)...);
@@ -333,7 +337,7 @@ namespace whash{
   
   template <typename T, typename R, typename... Rest>
   size_t constexpr hash(const T& v, const R& r, Rest... rest) {
-    return hash(hash(v),hash(r,rest...));
+    return hash(size_t(hash(v)),size_t(hash(r,rest...)));
   }
 
   template<class K,class enable = void>
