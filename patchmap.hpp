@@ -35,14 +35,21 @@ namespace whash{
   using std::is_const;
   using std::is_fundamental;
   using std::is_same;
+  using std::is_signed;
+  using std::is_integral;
+  using std::make_unsigned;
+  using std::vector;
   using std::is_trivially_copyable;
   using std::make_unique;
   using std::numeric_limits;
   using std::pair;
+  using std::remove_const;
   using std::setw;
+  using std::string;
   using std::swap;
   using std::true_type;
   using std::tuple;
+  using std::tuple_size;
   using std::unique_ptr;
 
   template<class T>
@@ -125,263 +132,6 @@ namespace whash{
     return __builtin_popcountll(n);
   }
 
-  template <typename T>
-  typename std::enable_if<std::is_unsigned<T>::value,T>::type
-  constexpr distribute(const T& a); // mix the hash value good, clmul_circ
-                                    // with odious integer is suitable
-
-  uint8_t  constexpr inline distribute(const uint8_t& a){
-    return (a+111)*97;
-  }
-
-  uint16_t constexpr inline distribute(const uint16_t& a){
-    return (a+36690)*43581;
-  }
-
-  uint32_t constexpr distribute(uint32_t a){
-    const uint32_t  b = 0x55555555ul;
-    const uint32_t c0 = 3107070805ul;
-    const uint32_t c1 = 3061963241ul;
-    a = (a^(a>>16))*b;
-    a = a^(a>>16);
-    return a;
-  }
-
-  uint64_t constexpr distribute(uint64_t a){
-    const uint64_t  b =   0x5555555555555555ull;
-    const uint64_t c0 = 16123805160827025777ull;
-    const uint64_t c1 = 13834579444137454003ull;
-    const uint64_t c2 = 14210505232527258663ull;
-    a^=(a>>32); a*=b; // a^=(a>>32);
-    return a;
-  }
-
-  template<typename,typename=void>
-  struct is_injective : false_type {};
-
-  template<typename T>
-  struct is_injective<T,typename enable_if<T::is_injective::value>::type>
-  : true_type {};
-  
-  template<typename,typename=void>
-  struct has_unhash : false_type {};
-
-  template<typename T>
-  struct has_unhash<T,typename enable_if<T::unhash_defined::value>::type>
-  : true_type {};
-
-  template<typename,typename=void>
-  struct has_std_hash : false_type {};
-
-  template<typename T>
-  struct has_std_hash<T,decltype(std::hash<T>()(std::declval<T>()),void())>
-  : true_type {};
-
-  template<typename T>
-  typename
-  enable_if<has_std_hash<T>::value&&(!is_fundamental<T>::value),size_t>::type
-  constexpr hash(const T& v){
-    return std::hash<T>()(v);
-  }
-
-  size_t constexpr hash() {
-    return 0;
-  }
-  
-  size_t constexpr unhash() {
-    return 0;
-  }
-
-  size_t constexpr hash(const size_t& seed,const size_t& n) {
-    return seed^distribute(n);
-  }
-
-  template<class K>
-  typename enable_if<(sizeof(K)>sizeof(size_t)
-                   &&is_fundamental<K>::value),size_t>::type
-  constexpr hash(const K& k){
-    size_t h(k);
-    const size_t n = sizeof(K)/sizeof(size_t);
-    for (size_t i=sizeof(size_t);i<sizeof(K);i+=sizeof(size_t))
-      h = hash(h,size_t(k>>(i*CHAR_BIT)));
-    return h;
-  }
-  
-  template<typename T>
-  constexpr T modular_inverse(const T& a) {
-    T x = a&1;
-    for (T i=1;i!=digits<T>();++i) x*=2-a*x;
-    return x;
-  }
- 
-  uint8_t constexpr hash(const uint8_t& v){
-    return (v+111)*97;
-  }
-  
-  uint8_t constexpr uhash(const uint8_t& v){
-    return v*modular_inverse(97)-111;
-  }
-
-  int8_t constexpr hash(const int8_t& v){
-    return hash(uint8_t(v));
-  }
-  
-  int8_t constexpr unhash(const int8_t& v){
-    return unhash(uint8_t(v));
-  }
-  
-  uint16_t constexpr hash(const uint16_t& v){
-    return (v+36690)*43581;
-  }
-  
-  uint16_t constexpr unhash(const uint16_t& v){
-    return (v*modular_inverse(43581))-36690;
-  }
-
-  int16_t constexpr hash(const int16_t& v){
-    return hash(uint16_t(v));
-  }
-  
-  int16_t constexpr unhash(const int16_t& v){
-    return unhash(uint16_t(v));
-  }
-
-  uint32_t constexpr hash(uint32_t v){
-    const uint32_t  a = 3370923577ul;
-    v^= v>>16;
-    v*= a;
-    v^= v>>16;
-    return v;
-  }
-  
-  uint32_t constexpr unhash(uint32_t v){
-    const uint32_t  a = 3370923577ul;
-    v^= v>>16;
-    v*= modular_inverse(a);
-    v^= v>>16;
-    return v;
-  }
-
-  int32_t constexpr hash(const int32_t v){
-    return hash(uint32_t(v));
-  }
-  
-  int32_t constexpr unhash(const int32_t v){
-    return unhash(uint32_t(v));
-  }
-
-  uint64_t constexpr hash(uint64_t v){
-    const uint64_t  a = 15864664792644967873ull;
-    v^= v>>32;
-    v*= a;
-    v^= v>>32;
-    return v;
-  }
-  
-  uint64_t constexpr unhash(uint64_t v){
-    const uint64_t  a = 15864664792644967873ull;
-    v^= v>>32;
-    v*= modular_inverse(a);
-    v^= v>>32;
-    return v;
-  }
-
-  int64_t constexpr hash(const int64_t& v){
-    return hash(uint64_t(v));
-  }
-  
-  int64_t constexpr unhash(const int64_t& v){
-    return unhash(uint64_t(v));
-  }
- 
-  template <typename T,typename R,typename... Rest>
-  size_t constexpr hash(const T& v,const R& r,Rest... rest);
-
-  uint16_t constexpr hash(const uint8_t& v0,const uint8_t& v1){
-    return (uint16_t(v0)<<8)^uint16_t(v1);
-  }
-
-  uint32_t constexpr hash(const uint16_t& v0,const uint16_t& v1){
-    return (uint32_t(v0)<<16)^(uint32_t(v1));
-  }
-  
-  uint64_t constexpr hash(const uint32_t& v0,const uint32_t& v1){
-    return (uint64_t(v0)<<32)^(uint64_t(v1));
-  }
-  
-  uint64_t constexpr hash(const uint32_t& v0,const uint64_t& v1){
-    return hash(uint64_t(v0))^v1;
-  }
-  
-  template<typename T,size_t... I>
-  size_t constexpr hash_tuple_impl(const T& t, index_sequence<I...>){
-    return hash(std::get<I>(t)...);
-  }
-
-  template<typename... Ts>
-  size_t constexpr hash(const tuple<Ts...>& t){
-    return hash_tuple_impl(t,index_sequence_for<Ts...>{});
-  }
-
-  template<typename T,size_t n>
-  size_t constexpr hash(const array<T,n> a){
-    size_t h(0);
-    for (size_t i=0;i!=n;++i) {
-      if constexpr(sizeof(T)<=sizeof(size_t))
-        if (i%(sizeof(size_t)/sizeof(T))==0) h = distribute(h); 
-      h = hash(h,a[i]);
-      if constexpr(sizeof(T)>sizeof(size_t)) h = distribute(h);
-    }
-    return h;
-  }
-  
-  template <typename T, typename R, typename... Rest>
-  size_t constexpr hash(const T& v, const R& r, Rest... rest) {
-    return hash(size_t(hash(v)),size_t(hash(r,rest...)));
-  }
-
-  template<class K,class enable = void>
-  struct hash_functor{
-    typedef typename false_type::type is_injective;
-    typedef typename false_type::type unhash_defined;
-    size_t operator()(const K& k) const {
-      return hash(k);
-    }
-  };
-  
-  template<class K>
-  struct hash_functor<
-    K,
-    typename enable_if<is_fundamental<K>::value,void>::type
-  >{
-    // if size_t has at least as many digits as the hashed type the hash can
-    // be injective and I will make it so
-    typedef typename integral_constant<bool,sizeof(K)<=sizeof(size_t)>::type
-      is_injective;
-    typedef typename is_injective::type unhash_defined;
-    auto constexpr operator()(const K& k) const {
-      return hash(k);
-    }
-    auto constexpr unhash(const K& k) const {
-      if constexpr (is_injective::value) return whash::unhash(k);
-      else return K(0);
-    }
-  };
-  
-  template<typename T,size_t n>
-  struct hash_functor<
-    array<T,n>,void>
-  {
-    // if size_t has at least as many digits as the hashed type the hash can
-    // be injective and I will make it so
-    typedef typename integral_constant<bool,n*sizeof(T)<=sizeof(size_t)>::type
-      is_injective;
-    typedef typename false_type::type unhash_defined;
-    auto constexpr operator()(const array<T,n>& k) const {
-      return hash(k);
-    }
-  };
-  
   template<typename T0,typename T1,typename T2>
   constexpr T0 clip(const T0& n,const T1& l,const T2& h){
     return n<l?l:n>h?h:n;
@@ -405,7 +155,6 @@ namespace whash{
           ctz(x,lower,(upper+lower)/2));
     // TODO
   }
-
 
   template <typename T>
   typename std::enable_if<std::is_unsigned<T>::value,T>::type
@@ -454,13 +203,257 @@ namespace whash{
     if ((i<digits<T>())&&(i>=0)) return n>>i;
     return 0;
   }
+  
+  template <typename T,typename S>
+  typename std::enable_if<std::is_unsigned<T>::value,T>::type
+  constexpr ror(const T n, const S i){
+    const T m = (std::numeric_limits<T>::digits-1);
+    const T c = i&m;
+    return (n>>c)|(n<<((-c)&m));
+  }
+
+  template <typename T,typename S>
+  typename std::enable_if<std::is_unsigned<T>::value,T>::type
+  constexpr rol(const T n, const S i){
+    const T m = (std::numeric_limits<T>::digits-1);
+    const T c = i&m;
+    return (n<<c)|(n>>((-c)&m));
+  } 
+  
+  template<typename test, template<typename...> class ref>
+  struct is_specialization : std::false_type {};
+
+  template<template<typename...> class ref, typename... args>
+  struct is_specialization<ref<args...>, ref>: std::true_type {};
+
+  template<typename T>
+  typename std::enable_if<std::is_unsigned<T>::value,T>::type
+  constexpr modular_inverse(const T& a) {
+    T x = a&1u;
+    for (size_t i(1);i!=digits<T>();++i) x*=T(2u)-a*x;
+    return x;
+  }
+
+  template<typename T,class enable = void>
+  class hash;
+  
+  template<>
+  class hash<uint8_t>{
+    private:
+      const uint8_t a = 97u;
+      const uint8_t i = modular_inverse(a);
+      const uint8_t b = 111u;
+    public:
+      typedef typename true_type::type is_injective;
+      typedef typename true_type::type unhash_defined;
+      constexpr size_t digits() const {
+        return whash::digits<uint8_t>();
+      }
+      constexpr uint8_t operator()(const uint8_t v) const {
+        return (v+b)*a;
+      }
+      constexpr uint8_t unhash(const uint8_t v) const {
+        return v*i-b;
+      }
+  };
+  
+  template<>
+  class hash<uint16_t>{
+    private:
+      const uint16_t a = 43581u;
+      const uint16_t i = modular_inverse(a);
+      const uint16_t b = 36690u;
+    public:
+      typedef typename true_type::type is_injective;
+      typedef typename true_type::type unhash_defined;
+      constexpr size_t digits() const {
+        return whash::digits<uint16_t>();
+      }
+      constexpr uint16_t operator()(const uint16_t v) const {
+        return (v+b)*a;
+      }
+      constexpr uint16_t unhash(const uint16_t v) const {
+        return v*i-b;
+      }
+  };
+
+  template<>
+  class hash<uint32_t>{
+    private:
+      const uint32_t a = 3370923577ul;
+      const uint32_t i = modular_inverse(a);
+    public:
+      typedef typename true_type::type is_injective;
+      typedef typename true_type::type unhash_defined;
+      constexpr size_t digits() const {
+        return whash::digits<uint32_t>();
+      }
+      constexpr uint32_t operator()(uint32_t v) const {
+        v^= v>>16;
+        v*= a;
+        v^= v>>16;
+        return v;
+      }
+      constexpr uint32_t unhash(uint32_t v) const {
+        v^= v>>16;
+        v*= i;
+        v^= v>>16;
+        return v;
+      }
+  };
+
+  template<>
+  class hash<uint64_t>{
+    private:
+      const uint64_t  a = 15864664792644967873ull;
+      const uint64_t  i = modular_inverse(a);
+    public:
+      typedef typename true_type::type is_injective;
+      typedef typename true_type::type unhash_defined;
+      constexpr size_t digits() const {
+        return whash::digits<uint64_t>();
+      }
+      uint64_t constexpr operator()(uint64_t v) const {
+        v^= v>>32;
+        v*= a;
+        v^= v>>32;
+        return v;
+      }  
+      uint64_t constexpr unhash(uint64_t v) const {
+        const uint64_t  a = 15864664792644967873ull;
+        v^= v>>32;
+        v*= modular_inverse(a);
+        v^= v>>32;
+        return v;
+      }
+  };
+
+  template<typename S>
+  class hash<S,
+        typename enable_if<is_integral<S>::value&&is_signed<S>::value>::type>
+  {
+    private:
+      using U = typename make_unsigned<S>::type;
+      const hash<typename remove_const<U>::type> hasher{};
+    public:
+      typedef typename true_type::type is_injective;
+      typedef typename true_type::type unhash_defined;
+      constexpr size_t digits() const {
+        return hasher.digits();
+      }
+      constexpr U operator()(const S& v) const {
+        return hasher(U(v));
+      }
+      constexpr S unhash(const U& v) const {
+        return S(hasher.unhash(v));
+      }
+  };
+  
+  template<typename T>
+  class hash<T,typename enable_if<
+  (is_fundamental<T>::value)&&(!is_integral<T>::value)
+  >::type>
+  {
+    public:
+      typedef typename false_type::type is_injective;
+      typedef typename false_type::type unhash_defined;
+      constexpr size_t digits() const {
+        return whash::digits<size_t>();
+      }
+      const inline size_t operator()(const T& v) const {
+        size_t h = 0;
+        for (size_t i=0;i!=sizeof(T);++i) {
+          h^=*(reinterpret_cast<const char*>(&v)+i);
+          rol(h,whash::digits<char>());
+          if (((i%sizeof(size_t))==(sizeof(size_t)-1))||(i==(sizeof(T)-1))) {
+            h = hash<size_t>{}(h);
+          }
+          //cerr << "# " << h << endl;
+        }
+        return h;
+      }
+  };
+
+
+  template<>
+  class hash<string>
+  {
+    public:
+      typedef typename false_type::type is_injective;
+      typedef typename false_type::type unhash_defined;
+      constexpr size_t digits() {
+        return whash::digits<size_t>();
+      }
+      const inline size_t operator()(const string& s) const {
+        return std::hash<string>{}(s);
+      }
+  };
+
+  template<typename T>
+  class hash<
+    T,
+    typename enable_if<
+      is_specialization<
+        typename remove_const<T>::type,
+        tuple
+      >::value
+    >::type
+  >
+  {
+    private:
+      template<size_t i = 0>
+      const size_t impl(const T& v,const size_t& h=0u)
+      const
+      {
+        if constexpr (i==tuple_size<T>::value) {
+          return h;
+        } else {
+          const auto e = get<i>(v);
+          size_t t = hash<size_t>{}(hash<decltype(e)>{}(e));
+          return impl<i+1>(v,h^(size_t(2u*i+1u)*t));
+        }
+      }
+    public:
+      typedef typename false_type::type is_injective;
+      typedef typename false_type::type unhash_defined;
+      constexpr size_t digits() const {
+        return whash::digits<size_t>();
+      }
+      const inline size_t operator()(const T& v) const {
+        return impl(v);
+      }
+  };
+  
+  template<typename T>
+  class hash<
+    T,
+    typename enable_if<
+      is_specialization<typename remove_const<T>::type,vector>::value
+    >::type
+  >
+  {
+    public:
+      typedef typename false_type::type is_injective;
+      typedef typename false_type::type unhash_defined;
+      constexpr size_t digits() const {
+        return whash::digits<size_t>();
+      }
+      const inline size_t operator()(const T& v) const {
+        size_t h = 0;
+        for (size_t i=0;i!=v.size();++i) {
+          auto e = v[i];
+          h^= size_t(2u*i+1u)*hash<decltype(e)>{}(e);
+        }
+        return h;
+      }
+  };
 
   template<class key_type,
            class mapped_type,
-           class hash        = hash_functor<key_type>,
+           class hash        = hash<key_type>,
            class equal       = std::equal_to<key_type>,
            class comp        = typename conditional<
-             is_injective<hash>::value,
+             hash::is_injective::value,
              dummy_comp<key_type>,
              std::less<key_type>>::type,
            class alloc       = typename boost::container::allocator<
@@ -553,7 +546,7 @@ namespace whash{
       bool inline is_equal(
           const pair<key_type,hash_type> a,
           const key_type b) const {
-        if constexpr (has_unhash<hash>::value) {
+        if constexpr (hash::unhash_defined::value) {
           return a.second == b;
         } else {
           return equator(a.first,b);
@@ -565,7 +558,7 @@ namespace whash{
           const hash_type& oa,
           const hash_type& ob
           ) const {
-        if constexpr (is_injective<hash>::value){
+        if constexpr (hash::is_injective::value){
           assert(equator(a,b)==(oa==ob));
           if (oa<ob) return true;
           else       return false;
@@ -592,7 +585,7 @@ namespace whash{
           const hash_type& ob
           ) const {
         
-        if constexpr (is_injective<hash>::value){
+        if constexpr (hash::is_injective::value){
           assert(equator(a,b)==(oa==ob));
           if (oa>ob) return true;
           else       return false;
@@ -663,7 +656,7 @@ namespace whash{
       }*/
       bool inline index_key_is_less(const size_type& i,const key_type& k) const{
         if (is_set(i)) {
-          if constexpr (has_unhash<hash>::value) {
+          if constexpr (hash::unhash_defined::value) {
             return is_less(unhash(data[i].first),k,data[i].first,order(k));
           } else {
             return is_less(data[i].first,k);
@@ -673,7 +666,7 @@ namespace whash{
       }
       bool inline key_index_is_less(const key_type& k,const size_type& i) const{
         if (is_set(i)) {
-          if constexpr (has_unhash<hash>::value) {
+          if constexpr (hash::unhash_defined::value) {
             return is_less(k,hasher.unhash(data[i].first),
                            order(k),data[i].first);
           } else {
@@ -687,21 +680,21 @@ namespace whash{
         assert(i<datasize);
         assert(j<datasize);
         if (is_set(i)&&is_set(j)) {
-          if constexpr (has_unhash<hash>::value) {
+          if constexpr (hash::unhash_defined::value) {
             return data[i].first < data[j].first;
           } else {
             return is_less(data[i].first,data[j].first);
           }
         }
         if (is_set(i)) {
-          if constexpr (has_unhash<hash>::value) {
+          if constexpr (hash::unhash_defined::value) {
             return map(data[i].first)<j;
           } else {
             return map(order(data[i].first))<j;
           }
         }
         if (is_set(j)) {
-          if constexpr (has_unhash<hash>::value) {
+          if constexpr (hash::unhash_defined::value) {
             return i<map(data[j].first);
           } else {
             return i<map(order(data[j].first));
@@ -840,7 +833,7 @@ namespace whash{
         while(true){
           if (i==0) break;
           if (!is_set(i-1)) break;
-          if constexpr (has_unhash<hash>::value) {
+          if constexpr (hash::unhash_defined::value) {
             if (data[i-1].first<ok) break;
           } else {
             if (is_less(data[i-1].first,k,order(data[i-1].first),ok)) break; 
@@ -852,7 +845,7 @@ namespace whash{
         while(true){
           if (i+1>=datasize) break;
           if (!is_set(i+1)) break;
-          if constexpr (has_unhash<hash>::value) {
+          if constexpr (hash::unhash_defined::value) {
             if (data[i+1].first>ok) break;
           } else {
             if (is_less(k,data[i+1].first,ok,order(data[i+1].first))) break; 
@@ -965,7 +958,7 @@ namespace whash{
           }
           if (is_equal({k,ok},data[mi].first)) return mi;
           hash_type omi;
-          if constexpr (has_unhash<hash>::value) omi = data[mi].first;
+          if constexpr (hash::unhash_defined::value) omi = data[mi].first;
           else                                   omi = order(data[mi].first);
           if (ok<omi) {
             hi = mi;
@@ -979,7 +972,7 @@ namespace whash{
             is_set_lo = true;
             continue;
           }
-          if constexpr (is_injective<hash>::value) {
+          if constexpr (hash::is_injective::value) {
             return ~size_type(0);
           } else {
             if (comparator(k,data[mi].first)) {
@@ -1008,13 +1001,13 @@ namespace whash{
         assert((mok<datasize)||(datasize==0));
         if (datasize==0) return ~size_type(0);
         if (!is_set(mok)) return ~size_type(0);
-        if constexpr (has_unhash<hash>::value) {
+        if constexpr (hash::unhash_defined::value) {
           if (data[mok].first == ok) return mok;
         } else {
           if (equator(data[mok].first,k)) return mok;
         }
         hash_type omi;
-        if constexpr (has_unhash<hash>::value) omi = data[mok].first;
+        if constexpr (hash::unhash_defined::value) omi = data[mok].first;
         else                                   omi = order(data[mok].first);
         if (omi<ok) {
           return find_node_interpol(k,ok,mok,
@@ -1089,10 +1082,10 @@ namespace whash{
           const size_type j = n%digits<size_type>();
           if (old_mask[i]&(size_type(1)<<(digits<size_type>()-j-1))){
             size_type l;
-            if constexpr (has_unhash<hash>::value) {
+            if constexpr (hash::unhash_defined::value) {
               l = reserve_node(key_type(0),old_data[n].first);
             } else {
-              reserve_node(old_data[n].first);
+              l = reserve_node(old_data[n].first);
             }
             allocator_traits<alloc>::construct(allocator,data+l,old_data[n]);
             set(l);
@@ -1224,14 +1217,14 @@ namespace whash{
         cerr << datasize << " " << num_data << endl;
         for (size_type i=0;i!=datasize;++i) {
           cout << std::fixed << std::setprecision(16);
-          hash_type  ok;
-          if constexpr (has_unhash<hash>::value) ok = data[i].first;
-          else                                   ok = order(data[i].first);
+          hash_type ok;
+          if constexpr (hash::unhash_defined::value) ok = data[i].first;
+          else                                       ok = order(data[i].first);
           const size_type mok = map(ok);
-          if (is_set(i)) cout << setw(6) << i;
+          if (is_set(i)) cout << setw( 6) << i;
           else           cout << "      "    ;
-                         cout << setw(20) << frac(ok)
-                              << setw(20) << frac(data[i].second);
+                         cout << setw(20) << frac(ok);
+          //                  << setw(20) << frac(data[i].second);
           if (is_set(i)) cout << setw( 8) << mok
                               << setw( 8) << int(mok)-int(i);
           else           cout << setw( 8) << i
@@ -1250,7 +1243,7 @@ namespace whash{
         while(true){
           if (i+1==datasize) break;
           if (!is_set(i+1)) break;
-          if constexpr (has_unhash<hash>::value) {
+          if constexpr (hash::unhash_defined::value) {
             if (map(data[i+1].first)>i) break;
           } else {
             if (map(order(data[i+1].first))>i) break;
@@ -1262,7 +1255,7 @@ namespace whash{
           while(true){
             if (i==0) break;
             if (!is_set(i-1)) break;
-            if constexpr (has_unhash<hash>::value) {
+            if constexpr (hash::unhash_defined::value) {
               if (map(data[i-1].first)<i) break;  
             } else {
               if (map(order(data[i-1].first))<i) break;
@@ -1398,8 +1391,8 @@ namespace whash{
           if (!index_index_is_less(j,i)) continue;
           cout << std::fixed << std::setprecision(16)
                << is_set(i) << " " << is_set(j) << " "
-               << i << " " << j << " "
-               << data[i].first << " " << data[j].first << endl;
+               << i << " " << j << endl;
+            // << data[i].first << " " << data[j].first << endl;
           ordered = false;
         }
         if (!ordered) print();
@@ -1452,13 +1445,14 @@ namespace whash{
         ensure_size();
         const size_type j = reserve_node(k);
         if (VERBOSE_PATCHMAP) cerr << "j = " << j << endl;
-        if constexpr (has_unhash<hash>::value) {
+        if constexpr (hash::unhash_defined::value) {
           allocator_traits<alloc>::construct(allocator,data+j,
               order(k),_mapped_type());
         } else {
           allocator_traits<alloc>::construct(allocator,data+j,k,_mapped_type());
         }
         assert(check_ordering());
+        //print();
         return data[j].second;
       }
       const _mapped_type& operator[](const key_type& k) const {
@@ -1576,8 +1570,9 @@ namespace whash{
           void inline update_hint(){
             if constexpr (!uphold_iterator_validity::value) return;
             if (hint<map->datasize) {
-              if constexpr (has_unhash<hash>::value) {
-                if (map->equator(unhash(map->data[hint].first),key)) return;
+              if constexpr (hash::unhash_defined::value) {
+                if (map->equator(map->hasher.unhash(map->data[hint].first),key))
+                  return;
               } else {
                 if (map->equator(map->data[hint].first,key)) return;
               }
@@ -1607,14 +1602,14 @@ namespace whash{
               }
             }
             if constexpr (is_same<mapped_type,void>::value) {
-              if constexpr (has_unhash<hash>::value) {
-                key = unhash(map->data[hint]);
+              if constexpr (hash::unhash_defined::value) {
+                key = map->hasher.unhash(map->data[hint]);
               } else {
                 key = map->data[hint];
               }
             } else {
-              if constexpr (has_unhash<hash>::value) {
-                key = unhash(map->data[hint].first);
+              if constexpr (hash::unhash_defined::value) {
+                key = map->hasher.unhash(map->data[hint].first);
               } else {
                 key = map->data[hint].first;
               }
@@ -1893,13 +1888,13 @@ namespace whash{
           auto operator*() {
             update_hint();
             if constexpr (is_same<void,mapped_type>::value) {
-              if constexpr (has_unhash<hash>::value) {
+              if constexpr (hash::unhash_defined::value) {
                 return map->hasher.unhash(map->data[hint].first);
               } else {
                 return map->data[hint].first;
               }
             }
-            if constexpr (has_unhash<hash>::value) {
+            if constexpr (hash::unhash_defined::value) {
               return pair<const key_type,mapped_type&>(
                   map->hasher.unhash(map->data[hint].first),
                   map->data[hint].second);
@@ -1910,14 +1905,14 @@ namespace whash{
           auto operator->() {
             update_hint();
             if constexpr (is_same<void,mapped_type>::value) {
-              if constexpr (has_unhash<hash>::value) {
+              if constexpr (hash::unhash_defined::value) {
                 return make_unique<key_type>(
                     map->hasher.unhash(map->data[hint].first));
               } else {
                 return &map->data[hint].first;
               }
             }
-            if constexpr (has_unhash<hash>::value) {
+            if constexpr (hash::unhash_defined::value) {
               return make_unique<pair<const key_type,mapped_type&>>(
                   map->hasher.unhash(map->data[hint].first),
                   map->data[hint].second);
@@ -1941,13 +1936,13 @@ namespace whash{
               }
             }
             if constexpr (is_same<void,mapped_type>::value) {
-              if constexpr (has_unhash<hash>::value) {
+              if constexpr (hash::unhash_defined::value) {
                 return map->hasher.unhash(map->data[hint].first);
               } else {
                 return map->data[hint].first;
               }
             }
-            if constexpr (has_unhash<hash>::value) {
+            if constexpr (hash::unhash_defined::value) {
               return pair<const key_type,mapped_type&>(
                   map->hasher.unhash(map->data[hint].first),
                   map->data[hint].second);
@@ -1971,14 +1966,14 @@ namespace whash{
               }
             }
             if constexpr (is_same<void,mapped_type>::value) {
-              if constexpr (has_unhash<hash>::value) {
+              if constexpr (hash::unhash_defined::value) {
                 return make_unique<key_type>(
                     map->hasher.unhash(map->data[hint].first));
               } else {
                 return &map->data[hint].first;
               }
             }
-            if constexpr (has_unhash<hash>::value) {
+            if constexpr (hash::unhash_defined::value) {
               return make_unique<pair<const key_type,mapped_type&>>(
                   map->hasher.unhash(map->data[hint].first),
                   map->data[hint].second);
@@ -2028,7 +2023,7 @@ namespace whash{
       if (i<datasize) return {iterator(i,key_of(val),this),false};
       ensure_size();
       const size_type j = reserve_node(key_of(val));
-      if constexpr (has_unhash<hash>::value) {
+      if constexpr (hash::unhash_defined::value) {
         if constexpr (is_same<void,mapped_type>::value) {
           allocator_traits<alloc>::construct(allocator,data+j,
               order(key_of(val)),true_type{});
@@ -2037,7 +2032,7 @@ namespace whash{
               order(key_of(val)),mapped_of(val));
         }
       } else {
-        allocator_traits<alloc>::construct(allocator,data+j,val);
+        allocator_traits<alloc>::construct(allocator,data+j,val,true_type{});
       }
       return {{j,key_of(val),this},true};
     }
@@ -2166,9 +2161,9 @@ namespace whash{
   
   template<class key_type    = int,  // int is the default, why not
            class mapped_type = int,  // int is the default, why not
-           class hash        = hash_functor<key_type>,
+           class hash        = hash<key_type>,
            class equal       = std::equal_to<key_type>,
-           class comp        = typename conditional<is_injective<hash>::value,
+           class comp        = typename conditional<hash::is_injective::value,
                                                     dummy_comp<key_type>,
                                                     std::less<key_type>>::type,
            class alloc       = typename boost::container::allocator<
@@ -2183,22 +2178,22 @@ namespace whash{
   
   template<class key_type,           // unordered_map has no default key_type
            class mapped_type,        // unordered_map has no default mapped_type
-           class hash        = hash_functor<key_type>,
+           class hash        = hash<key_type>,
            class equal       = std::equal_to<key_type>,
            class alloc       = typename // mapped_type must not be void
              boost::container::allocator<std::pair<key_type,mapped_type>,2>,
-           class comp        = typename conditional<is_injective<hash>::value,
+           class comp        = typename conditional<hash::is_injective::value,
              dummy_comp<key_type>,typename std::less<key_type>::type>::type
           >
   using unordered_map =
     patchmap<key_type,mapped_type,hash,equal,alloc,comp>;
   
   template<class key_type,           // unordered_set has no default key_type
-           class hash        = hash_functor<key_type>,
+           class hash        = hash<key_type>,
            class equal       = std::equal_to<key_type>,
            class alloc       = typename
              boost::container::allocator<pair<key_type,true_type>,2>,
-           class comp        = typename conditional<is_injective<hash>::value,
+           class comp        = typename conditional<hash::is_injective::value,
              dummy_comp<key_type>,typename std::less<key_type>::type>::type
           >
   using unordered_set =
