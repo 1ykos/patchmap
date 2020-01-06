@@ -7,14 +7,11 @@
 #include <random>
 #include <unordered_map>
 #include "patchmap.hpp"
-#include "robin_map.hpp"
 #include "wmath.hpp"
 
 using whash::patchmap;
 using wmath::reflect;
 using whash::frac;
-using whash::hash;
-using whash::unhash;
 
 using std::cout;
 using std::endl;
@@ -30,6 +27,11 @@ using std::allocator_traits;
 uint32_t gen_rand(uint32_t i){
   return wmath::clmul_mod(uint32_t(i*3061963241ul),uint32_t(3107070805ul));
   return wmath::rol(uint32_t(i*3063032679ull),13)*2694261069ull;
+}
+
+template<typename T>
+const auto hash(const T& v){
+  return whash::hash<T>{}(v);
 }
 
 int main(){
