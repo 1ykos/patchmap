@@ -185,10 +185,10 @@ green { color: green; }
   operations. To achieve this the keys or key-value pairs are stored at a
   pseudorandom position determined first by a hash of the key and then either
   storing all the entries that map to the same position in a secondary data
-  structure (this method is called chaining) or by a probing strategy to finds
-  another position that is free. The first step creats a cache miss. A cache
-  miss is when memory is requested from RAM, which is not in any of the caches
-  of the CPU. The time this takes is around 300 CPU cycles and typically
+  structure (this method is called chaining) or by a probing strategy that finds
+  another free position. The first step creats a cache miss. A cache
+  miss is when data, that cannot be found in any of the caches of the CPU,
+  is requested. The time this takes is around 300 CPU cycles and typically
   determines the performance of a hash table. It cannot be avoided due to the
   pseudorandom nature of hashing. The second step however occurs more frequently
   the fuller the table becomes, it is a function of the load factor α.
