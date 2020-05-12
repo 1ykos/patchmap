@@ -1289,7 +1289,6 @@ namespace whash{
       }
       void const resize(const size_type& n){
         if (n<num_data) return;
-        print();
         if (VERBOSE_PATCHMAP)
           cerr << "resizing from " << datasize << " to " << n << endl;
         resize_out_of_place(n); return;
