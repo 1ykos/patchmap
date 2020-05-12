@@ -1226,8 +1226,8 @@ namespace whash{
           if (is_set(i)) cout << setw( 6) << i;
           else           cout << "      "    ;
                          cout << setw(20) << frac(ok);
-                         cout << setw(20) << hasher.unhash(data[i].first);
-                         cout << setw(20) << data[i].second;
+          //               cout << setw(20) << hasher.unhash(data[i].first);
+          //               cout << setw(20) << data[i].second;
           //                  << setw(20) << frac(data[i].second);
           if (is_set(i)) cout << setw( 8) << mok
                               << setw( 8) << int(mok)-int(i);
