@@ -24,6 +24,7 @@ namespace whash{
   using std::cerr;
   using std::conditional;
   using std::cout;
+  using std::decay;
   using std::enable_if;
   using std::endl;
   using std::false_type;
@@ -34,13 +35,12 @@ namespace whash{
   using std::integral_constant;
   using std::is_const;
   using std::is_fundamental;
+  using std::is_integral;
   using std::is_same;
   using std::is_signed;
-  using std::is_integral;
-  using std::make_unsigned;
-  using std::vector;
   using std::is_trivially_copyable;
   using std::make_unique;
+  using std::make_unsigned;
   using std::numeric_limits;
   using std::pair;
   using std::remove_const;
@@ -51,6 +51,7 @@ namespace whash{
   using std::tuple;
   using std::tuple_size;
   using std::unique_ptr;
+  using std::vector;
 
   template<class T>
   double frac(const T& n){
@@ -258,7 +259,7 @@ namespace whash{
   };
   
   template<>
-  class hash<uint16_t>{
+  class hash<uint16_t,void>{
     private:
       const uint16_t a = 43581u;
       const uint16_t i = modular_inverse(a);
@@ -278,7 +279,7 @@ namespace whash{
   };
 
   template<>
-  class hash<uint32_t>{
+  class hash<uint32_t,void>{
     private:
       const uint32_t a = 3370923577ul;
       const uint32_t i = modular_inverse(a);
@@ -303,7 +304,7 @@ namespace whash{
   };
 
   template<>
-  class hash<uint64_t>{
+  class hash<uint64_t,void>{
     private:
       const uint64_t  a = 15864664792644967873ull;
       const uint64_t  i = modular_inverse(a);
@@ -409,7 +410,8 @@ namespace whash{
           return h;
         } else {
           const auto e = get<i>(v);
-          size_t t = hash<size_t>{}(hash<decltype(e)>{}(e));
+          size_t t =
+            hash<size_t>{}(hash<typename remove_const<decltype(e)>::type>{}(e));
           return impl<i+1>(v,h^(size_t(2u*i+1u)*t));
         }
       }
@@ -1224,6 +1226,8 @@ namespace whash{
           if (is_set(i)) cout << setw( 6) << i;
           else           cout << "      "    ;
                          cout << setw(20) << frac(ok);
+                         cout << setw(20) << hasher.unhash(data[i].first);
+                         cout << setw(20) << data[i].second;
           //                  << setw(20) << frac(data[i].second);
           if (is_set(i)) cout << setw( 8) << mok
                               << setw( 8) << int(mok)-int(i);
@@ -1285,6 +1289,7 @@ namespace whash{
       }
       void const resize(const size_type& n){
         if (n<num_data) return;
+        print();
         if (VERBOSE_PATCHMAP)
           cerr << "resizing from " << datasize << " to " << n << endl;
         resize_out_of_place(n); return;
@@ -1452,7 +1457,6 @@ namespace whash{
           allocator_traits<alloc>::construct(allocator,data+j,k,_mapped_type());
         }
         assert(check_ordering());
-        //print();
         return data[j].second;
       }
       const _mapped_type& operator[](const key_type& k) const {
@@ -1899,7 +1903,10 @@ namespace whash{
                   map->hasher.unhash(map->data[hint].first),
                   map->data[hint].second);
             } else {
-              return pair<const key_type&,mapped_type&>(map->data[hint]);
+              return pair<const key_type&,mapped_type&>(
+                  map->data[hint].first,
+                  map->data[hint].second
+                  );
             }
           }
           auto operator->() {
@@ -1986,15 +1993,27 @@ namespace whash{
     typedef const_noconst_iterator<true>  const_iterator;    
     iterator begin(){
       const size_type i = find_first();
-      return iterator(i,data[i].first,this);
+      if constexpr (hash::unhash_defined::value) {
+        return iterator(i,hasher.unhash(data[i].first),this);
+      } else {
+        return iterator(i,data[i].first,this);
+      }
     }
     const_iterator begin() const {
       const size_type i = find_first();
-      return const_iterator(i,data[i].first,this);
+      if constexpr (hash::unhash_defined::value) {
+        return const_iterator(i,hasher.unhash(data[i].first),this);
+      } else {
+        return const_iterator(i,data[i].first,this);
+      }
     }
     const_iterator cbegin() const {
       const size_type i = find_first();
-      return const_iterator(i,data[i].first,this);
+      if constexpr (hash::unhash_defined::value) {
+        return const_iterator(i,hasher.unhash(data[i].first),this);
+      } else {
+        return const_iterator(i,data[i].first,this);
+      }
     }
     iterator end() {
       const size_type i = find_first();
@@ -2067,7 +2086,7 @@ namespace whash{
     }
     template <class... Args>
     pair<iterator, bool> emplace ( Args&&... args ){
-      insert(value_type(args...));
+      return insert(value_type(args...));
     }
     template <class... Args>
     iterator emplace_hint(const_iterator position,Args&&... args){
