@@ -47,6 +47,7 @@ namespace whash{
   using std::setw;
   using std::string;
   using std::swap;
+  using std::to_string;
   using std::true_type;
   using std::tuple;
   using std::tuple_size;
@@ -458,12 +459,25 @@ namespace whash{
              hash::is_injective::value,
              dummy_comp<key_type>,
              std::less<key_type>>::type,
-           class alloc       = typename boost::container::allocator<
+           /*class alloc       = typename boost::container::allocator<
              typename conditional<
                std::is_same<mapped_type,void>::value,
-               std::pair<key_type,std::true_type>,
-               std::pair<key_type,mapped_type>
-             >::type,2>,
+               std::tuple<key_type,std::true_type>,
+               std::tuple<key_type,mapped_type>
+             >::type,2>,*/
+           class alloc       = typename std::allocator
+           <
+             tuple
+             <
+               key_type,
+               typename conditional
+               <
+                 std::is_same<mapped_type,void>::value,
+                 std::true_type,
+                 mapped_type
+               >::type
+             >
+           >,
            bool dynamic      = true
           >
   class patchmap{
@@ -498,12 +512,12 @@ namespace whash{
       template<typename T>
       const key_type& key_of(T&& value) const {
         if constexpr (is_same<void,mapped_type>::value) return value;
-        else return value.first;
+        else return get<0>(value);
       }
       template<typename T>
       const _mapped_type& mapped_of(T&& value) const {
         if constexpr (is_same<void,mapped_type>::value) return std::true_type();
-        else return value.second;
+        else return get<1>(value);
       }
       size_type inline map(
           const hash_type& h,
@@ -549,9 +563,9 @@ namespace whash{
           const pair<key_type,hash_type> a,
           const key_type b) const {
         if constexpr (hash::unhash_defined::value) {
-          return a.second == b;
+          return get<1>(a) == b;
         } else {
-          return equator(a.first,b);
+          return equator(get<0>(a),b);
         }
       }
       bool inline is_less(
@@ -653,15 +667,15 @@ namespace whash{
       }
       /*hash_type inline index(const size_type& i) const {
         assert(i<datasize);
-        if (is_set(i)) return order(data[i].first);
+        if (is_set(i)) return order(get<0>(data[i]));
         else           return hash_type(i)*inversed;
       }*/
       bool inline index_key_is_less(const size_type& i,const key_type& k) const{
         if (is_set(i)) {
           if constexpr (hash::unhash_defined::value) {
-            return is_less(unhash(data[i].first),k,data[i].first,order(k));
+            return is_less(unhash(get<0>(data[i])),k,get<0>(data[i]),order(k));
           } else {
-            return is_less(data[i].first,k);
+            return is_less(get<0>(data[i]),k);
           }
         }
         return i<map(order(k));
@@ -669,10 +683,10 @@ namespace whash{
       bool inline key_index_is_less(const key_type& k,const size_type& i) const{
         if (is_set(i)) {
           if constexpr (hash::unhash_defined::value) {
-            return is_less(k,hasher.unhash(data[i].first),
-                           order(k),data[i].first);
+            return is_less(k,hasher.unhash(get<0>(data[i])),
+                           order(k),get<0>(data[i]));
           } else {
-            return is_less(k,data[i].first);
+            return is_less(k,get<0>(data[i]));
           }
         }
         return map(order(k))<i;
@@ -683,23 +697,23 @@ namespace whash{
         assert(j<datasize);
         if (is_set(i)&&is_set(j)) {
           if constexpr (hash::unhash_defined::value) {
-            return data[i].first < data[j].first;
+            return get<0>(data[i]) < get<0>(data[j]);
           } else {
-            return is_less(data[i].first,data[j].first);
+            return is_less(get<0>(data[i]),get<0>(data[j]));
           }
         }
         if (is_set(i)) {
           if constexpr (hash::unhash_defined::value) {
-            return map(data[i].first)<j;
+            return map(get<0>(data[i]))<j;
           } else {
-            return map(order(data[i].first))<j;
+            return map(order(get<0>(data[i])))<j;
           }
         }
         if (is_set(j)) {
           if constexpr (hash::unhash_defined::value) {
-            return i<map(data[j].first);
+            return i<map(get<0>(data[j]));
           } else {
-            return i<map(order(data[j].first));
+            return i<map(order(get<0>(data[j])));
           }
         }
         return i<j;
@@ -836,9 +850,9 @@ namespace whash{
           if (i==0) break;
           if (!is_set(i-1)) break;
           if constexpr (hash::unhash_defined::value) {
-            if (data[i-1].first<ok) break;
+            if (get<0>(data[i-1])<ok) break;
           } else {
-            if (is_less(data[i-1].first,k,order(data[i-1].first),ok)) break; 
+            if (is_less(get<0>(data[i-1]),k,order(get<0>(data[i-1])),ok)) break; 
           }
           swap(data[i],data[i-1]);
           --i;
@@ -848,9 +862,9 @@ namespace whash{
           if (i+1>=datasize) break;
           if (!is_set(i+1)) break;
           if constexpr (hash::unhash_defined::value) {
-            if (data[i+1].first>ok) break;
+            if (get<0>(data[i+1])>ok) break;
           } else {
-            if (is_less(k,data[i+1].first,ok,order(data[i+1].first))) break; 
+            if (is_less(k,get<0>(data[i+1]),ok,order(get<0>(data[i+1])))) break; 
           }
           swap(data[i],data[i+1]);
           ++i;
@@ -907,14 +921,14 @@ namespace whash{
               if (hi-lo<2) {
                 if (hi-lo<1) {
                   if (is_set(lo))
-                    if (is_equal({k,ok},data[lo].first)) return lo;
+                    if (is_equal({k,ok},get<0>(data[lo]))) return lo;
                   return ~size_type(0);
                 } else {
                   if (is_set_lo&&is_set_hi) return ~size_type(0);
                   if (is_set(lo))
-                    if (is_equal({k,ok},data[lo].first)) return lo;
+                    if (is_equal({k,ok},get<0>(data[lo]))) return lo;
                   if (is_set(hi))
-                    if (is_equal({k,ok},data[hi].first)) return hi;
+                    if (is_equal({k,ok},get<0>(data[hi]))) return hi;
                   return ~size_type(0);
                 }
               } else {
@@ -958,10 +972,12 @@ namespace whash{
             }
             return ~size_type(0);
           }
-          if (is_equal({k,ok},data[mi].first)) return mi;
+          if (is_equal({k,ok},get<0>(data[mi]))) return mi;
           hash_type omi;
-          if constexpr (hash::unhash_defined::value) omi = data[mi].first;
-          else                                   omi = order(data[mi].first);
+          if constexpr (hash::unhash_defined::value)
+            omi = get<0>(data[mi]);
+          else
+            omi = order(get<0>(data[mi]));
           if (ok<omi) {
             hi = mi;
             ohi = omi;
@@ -977,13 +993,13 @@ namespace whash{
           if constexpr (hash::is_injective::value) {
             return ~size_type(0);
           } else {
-            if (comparator(k,data[mi].first)) {
+            if (comparator(k,get<0>(data[mi]))) {
               hi = mi;
               ohi = omi;
               is_set_hi = true;
               continue;
             }
-            if (comparator(data[mi].first,k)) {
+            if (comparator(get<0>(data[mi]),k)) {
               lo = mi;
               olo = omi;
               is_set_lo = true;
@@ -1004,13 +1020,15 @@ namespace whash{
         if (datasize==0) return ~size_type(0);
         if (!is_set(mok)) return ~size_type(0);
         if constexpr (hash::unhash_defined::value) {
-          if (data[mok].first == ok) return mok;
+          if (get<0>(data[mok]) == ok) return mok;
         } else {
-          if (equator(data[mok].first,k)) return mok;
+          if (equator(get<0>(data[mok]),k)) return mok;
         }
         hash_type omi;
-        if constexpr (hash::unhash_defined::value) omi = data[mok].first;
-        else                                   omi = order(data[mok].first);
+        if constexpr (hash::unhash_defined::value)
+          omi =       get<0>(data[mok]);
+        else
+          omi = order(get<0>(data[mok]));
         if (omi<ok) {
           return find_node_interpol(k,ok,mok,
               mok       ,omi          ,true ,
@@ -1032,7 +1050,7 @@ namespace whash{
 
       size_type const inline find_node_bruteforce(const key_type& k) const {
         for (size_type i = 0; i!=datasize; ++i)
-          if (is_set(i)) if (is_equal({k,order(k)},data[i].first)) return i;
+          if (is_set(i)) if (is_equal({k,order(k)},get<0>(data[i]))) return i;
         return ~size_type(0);
       }
 
@@ -1060,7 +1078,7 @@ namespace whash{
             +"key not found, array index "
             +std::to_string(i)+" out of bounds"
            );
-        return hashmap.data[i].second;
+        return get<1>(hashmap.data[i]);
       }
       void const resize_out_of_place(const size_type& n){
         size_type old_datasize = n;
@@ -1085,9 +1103,9 @@ namespace whash{
           if (old_mask[i]&(size_type(1)<<(digits<size_type>()-j-1))){
             size_type l;
             if constexpr (hash::unhash_defined::value) {
-              l = reserve_node(key_type(0),old_data[n].first);
+              l = reserve_node(key_type(0),get<0>(old_data[n]));
             } else {
-              l = reserve_node(old_data[n].first);
+              l = reserve_node(get<0>(old_data[n]));
             }
             allocator_traits<alloc>::construct(allocator,data+l,old_data[n]);
             set(l);
@@ -1220,15 +1238,15 @@ namespace whash{
         for (size_type i=0;i!=datasize;++i) {
           cout << std::fixed << std::setprecision(16);
           hash_type ok;
-          if constexpr (hash::unhash_defined::value) ok = data[i].first;
-          else                                       ok = order(data[i].first);
+          if constexpr (hash::unhash_defined::value) ok = get<0>(data[i]);
+          else                                       ok = order(get<0>(data[i]));
           const size_type mok = map(ok);
           if (is_set(i)) cout << setw( 6) << i;
           else           cout << "      "    ;
                          cout << setw(20) << frac(ok);
-          //               cout << setw(20) << hasher.unhash(data[i].first);
-          //               cout << setw(20) << data[i].second;
-          //                  << setw(20) << frac(data[i].second);
+          //               cout << setw(20) << hasher.unhash(get<0>(data[i]));
+          //               cout << setw(20) << get<1>(data[i]);
+          //                  << setw(20) << frac(get<1>(data[i]));
           if (is_set(i)) cout << setw( 8) << mok
                               << setw( 8) << int(mok)-int(i);
           else           cout << setw( 8) << i
@@ -1248,9 +1266,9 @@ namespace whash{
           if (i+1==datasize) break;
           if (!is_set(i+1)) break;
           if constexpr (hash::unhash_defined::value) {
-            if (map(data[i+1].first)>i) break;
+            if (map(get<0>(data[i+1]))>i) break;
           } else {
-            if (map(order(data[i+1].first))>i) break;
+            if (map(order(get<0>(data[i+1])))>i) break;
           }
           swap(data[i],data[i+1]);
           ++i;
@@ -1260,9 +1278,9 @@ namespace whash{
             if (i==0) break;
             if (!is_set(i-1)) break;
             if constexpr (hash::unhash_defined::value) {
-              if (map(data[i-1].first)<i) break;  
+              if (map(get<0>(data[i-1]))<i) break;  
             } else {
-              if (map(order(data[i-1].first))<i) break;
+              if (map(order(get<0>(data[i-1])))<i) break;
             }
             swap(data[i],data[i-1]);
             --i;
@@ -1298,90 +1316,91 @@ namespace whash{
             >::value) {
           resize_out_of_place(n);
           return;
-        }
-        if (datasize == 0){
-          resize_out_of_place(n);
-          return;
-        }
-        resize_out_of_place(n); return;
-        if (VERBOSE_PATCHMAP)
-          cerr << "attempting to resize in place " << endl;
-        size_type old_datasize = n;
-        size_type min_datasize = (datasize+old_datasize+1)/2;
-        value_pointer reuse = data;
-        value_pointer old_data = allocator.allocation_command(
-          //boost::interprocess::expand_bwd
-            boost::interprocess::allocate_new
-           |boost::interprocess::expand_fwd,
-            min_datasize,
-            old_datasize,
-            reuse);
-        //cerr << "scary allocation_command did not crash" <<  endl;
-        size_type old_masksize =
-          (old_datasize+digits<size_type>()-1)/digits<size_type>();
-        //cerr << "allocating mask " << old_masksize << endl;
-        /*size_type * old_mask = maskallocator.allocation_command(
-            boost::interprocess::allocate_new|boost::interprocess::zero_memory,
-            old_masksize,
-            old_masksize,
-            nullptr);*/
-        swap(datasize,old_datasize);
-        // should not be necessary but it is, boost has not implemented
-        // zero_memory yet :( TODO myself
-        if (reuse){
-          //if (old_data<data) cerr << "backwards expansion, oO " << endl;
-          if (VERBOSE_PATCHMAP)
-            cerr << "in place resize, yea :D " << endl;
-          size_type * reuse = mask;
-          size_type * old_mask = maskallocator.allocation_command(
-            boost::interprocess::allocate_new
-           |boost::interprocess::expand_fwd,
-            old_masksize,
-            old_masksize,
-            reuse);
-          if (!reuse) for(size_type i=0;i<masksize;++i) old_mask[i]=mask[i];
-          for(size_type i=masksize; i<old_masksize;++i) old_mask[i]=0;
-          if (!reuse) swap(old_mask,mask);
-          swap(old_masksize,masksize);
-          num_data = 0;
-          //cerr << old_data << " "<< data << endl;
-          for (size_type n=old_datasize-1;n<old_datasize;--n){
-            if (is_set(n)){
-            //const size_type i = n/digits<size_type>();
-            //const size_type j = n%digits<size_type>();
-            //if (old_mask[i]&(size_type(1)<<(digits<size_type>()-j-1))){
-              value_type temp = move(data[n]);
-              unset(n);
-              const size_type l = reserve_node(temp.first);
-              data[l] = move(temp);
-            }
-          }
-          assert(check_ordering());
-          if (!reuse) maskallocator.deallocate(old_mask,old_masksize); 
         } else {
-          size_type * old_mask = maskallocator.allocate(old_masksize);
-          for (size_type i=0;i!=old_masksize;++i) old_mask[i]=0;
-          swap(old_mask,mask);
-          swap(old_masksize,masksize);
-          num_data = 0;
-          swap(old_data,data);
-          if (VERBOSE_PATCHMAP)
-            cerr << "no reuse :/ " << endl;
-          //cerr << old_data << " "<< data << endl;
-          for (size_type n=0;n<old_datasize;++n){
-            const size_type i = n/digits<size_type>();
-            const size_type j = n%digits<size_type>();
-            if (old_mask[i]&(size_type(1)<<(digits<size_type>()-j-1))){
-              const size_type l = reserve_node(old_data[n].first);
-              data[l] = old_data[n];
-            }
+          if (datasize == 0){
+            resize_out_of_place(n);
+            return;
           }
-          assert(check_ordering());
-          //cerr << "scary free " << endl;
-          allocator.deallocate    (old_data,old_datasize);
-          maskallocator.deallocate(old_mask,old_masksize); 
+          resize_out_of_place(n); return;
+          if (VERBOSE_PATCHMAP)
+            cerr << "attempting to resize in place " << endl;
+          size_type old_datasize = n;
+          size_type min_datasize = (datasize+old_datasize+1)/2;
+          value_pointer reuse = data;
+          value_pointer old_data = allocator.allocation_command(
+            //boost::interprocess::expand_bwd
+              boost::interprocess::allocate_new
+             |boost::interprocess::expand_fwd,
+              min_datasize,
+              old_datasize,
+              reuse);
+          //cerr << "scary allocation_command did not crash" <<  endl;
+          size_type old_masksize =
+            (old_datasize+digits<size_type>()-1)/digits<size_type>();
+          //cerr << "allocating mask " << old_masksize << endl;
+          /*size_type * old_mask = maskallocator.allocation_command(
+              boost::interprocess::allocate_new|boost::interprocess::zero_memory,
+              old_masksize,
+              old_masksize,
+              nullptr);*/
+          swap(datasize,old_datasize);
+          // should not be necessary but it is, boost has not implemented
+          // zero_memory yet :( TODO myself
+          if (reuse){
+            //if (old_data<data) cerr << "backwards expansion, oO " << endl;
+            if (VERBOSE_PATCHMAP)
+              cerr << "in place resize, yea :D " << endl;
+            size_type * reuse = mask;
+            size_type * old_mask = maskallocator.allocation_command(
+              boost::interprocess::allocate_new
+             |boost::interprocess::expand_fwd,
+              old_masksize,
+              old_masksize,
+              reuse);
+            if (!reuse) for(size_type i=0;i<masksize;++i) old_mask[i]=mask[i];
+            for(size_type i=masksize; i<old_masksize;++i) old_mask[i]=0;
+            if (!reuse) swap(old_mask,mask);
+            swap(old_masksize,masksize);
+            num_data = 0;
+            //cerr << old_data << " "<< data << endl;
+            for (size_type n=old_datasize-1;n<old_datasize;--n){
+              if (is_set(n)){
+              //const size_type i = n/digits<size_type>();
+              //const size_type j = n%digits<size_type>();
+              //if (old_mask[i]&(size_type(1)<<(digits<size_type>()-j-1))){
+                value_type temp = move(data[n]);
+                unset(n);
+                const size_type l = reserve_node(get<0>(temp));
+                data[l] = move(temp);
+              }
+            }
+            assert(check_ordering());
+            if (!reuse) maskallocator.deallocate(old_mask,old_masksize); 
+          } else {
+            size_type * old_mask = maskallocator.allocate(old_masksize);
+            for (size_type i=0;i!=old_masksize;++i) old_mask[i]=0;
+            swap(old_mask,mask);
+            swap(old_masksize,masksize);
+            num_data = 0;
+            swap(old_data,data);
+            if (VERBOSE_PATCHMAP)
+              cerr << "no reuse :/ " << endl;
+            //cerr << old_data << " "<< data << endl;
+            for (size_type n=0;n<old_datasize;++n){
+              const size_type i = n/digits<size_type>();
+              const size_type j = n%digits<size_type>();
+              if (old_mask[i]&(size_type(1)<<(digits<size_type>()-j-1))){
+                const size_type l = reserve_node(get<0>(old_data[n]));
+                data[l] = old_data[n];
+              }
+            }
+            assert(check_ordering());
+            //cerr << "scary free " << endl;
+            allocator.deallocate    (old_data,old_datasize);
+            maskallocator.deallocate(old_mask,old_masksize); 
+          }
+          //cerr << "deallocating old mask" << endl;
         }
-        //cerr << "deallocating old mask" << endl;
       }
       size_type inline size() const { return num_data; }
       size_type const test_size() const {
@@ -1396,7 +1415,6 @@ namespace whash{
           cout << std::fixed << std::setprecision(16)
                << is_set(i) << " " << is_set(j) << " "
                << i << " " << j << endl;
-            // << data[i].first << " " << data[j].first << endl;
           ordered = false;
         }
         if (!ordered) print();
@@ -1445,7 +1463,7 @@ namespace whash{
       _mapped_type& operator[](const key_type& k){
         const size_type i = find_node(k);
         if (VERBOSE_PATCHMAP) cerr << "i = " << i << endl; 
-        if (i<datasize) return data[i].second;
+        if (i<datasize) return get<1>(data[i]);
         ensure_size();
         const size_type j = reserve_node(k);
         if (VERBOSE_PATCHMAP) cerr << "j = " << j << endl;
@@ -1456,11 +1474,11 @@ namespace whash{
           allocator_traits<alloc>::construct(allocator,data+j,k,_mapped_type());
         }
         assert(check_ordering());
-        return data[j].second;
+        return get<1>(data[j]);
       }
       const _mapped_type& operator[](const key_type& k) const {
         const size_type i = find_node(k);
-        if (i<datasize) data[i].second;
+        if (i<datasize) return get<1>(data[i]);
         else throw std::out_of_range(
             std::string(typeid(*this).name())
             +".operator["+typeid(k).name()+" k]"
@@ -1481,8 +1499,8 @@ namespace whash{
         double v = 0;
         for (size_type i=0;i!=datasize;++i){
           if (is_set(i)){
-            v+=double(map(data[i].first))-double(i);
-            cout << map(order(data[i].first)) << " " << i << " "
+            v+=double(map(get<0>(data[i])))-double(i);
+            cout << map(order(get<0>(data[i]))) << " " << i << " "
                  << datasize << endl;
           }
         }
@@ -1490,7 +1508,7 @@ namespace whash{
       }
       void print_offsets(){
         for (size_type i=0;i!=datasize;++i){
-          if (is_set(i)) cout << map(order(data[i].first)) << " " << i << endl;
+          if (is_set(i)) cout << map(order(get<0>(data[i]))) << " " << i << endl;
           //else           cout << i                         << " " << i << endl;
         }
       }
@@ -1574,10 +1592,10 @@ namespace whash{
             if constexpr (!uphold_iterator_validity::value) return;
             if (hint<map->datasize) {
               if constexpr (hash::unhash_defined::value) {
-                if (map->equator(map->hasher.unhash(map->data[hint].first),key))
+                if (map->equator(map->hasher.unhash(get<0>(map->data[hint])),key))
                   return;
               } else {
-                if (map->equator(map->data[hint].first,key)) return;
+                if (map->equator(get<0>(map->data[hint]),key)) return;
               }
             }
             hint = map->find_node(key);
@@ -1606,15 +1624,15 @@ namespace whash{
             }
             if constexpr (is_same<mapped_type,void>::value) {
               if constexpr (hash::unhash_defined::value) {
-                key = map->hasher.unhash(map->data[hint]);
+                key = map->hasher.unhash(get<0>(map->data[hint]));
               } else {
-                key = map->data[hint];
+                key = get<0>(map->data[hint]);
               }
             } else {
               if constexpr (hash::unhash_defined::value) {
-                key = map->hasher.unhash(map->data[hint].first);
+                key = map->hasher.unhash(get<0>(map->data[hint]));
               } else {
-                key = map->data[hint].first;
+                key = get<0>(map->data[hint]);
               }
             }
           }
@@ -1640,10 +1658,10 @@ namespace whash{
             }
             key = map->data[hint].first;
           }
-          template<bool is_const0,bool is_const1>
+          template<bool is_const_other>
             difference_type inline friend diff(
-                const_noconst_iterator<is_const0>& it0,
-                const_noconst_iterator<is_const1>& it1){
+                const_noconst_iterator<is_const>& it0,
+                const_noconst_iterator<is_const_other>& it1){
               if (it1<it0) return -diff(it0,it1);
               it0.update_hint();
               it1.update_hint();
@@ -1892,19 +1910,18 @@ namespace whash{
             update_hint();
             if constexpr (is_same<void,mapped_type>::value) {
               if constexpr (hash::unhash_defined::value) {
-                return map->hasher.unhash(map->data[hint].first);
+                return map->hasher.unhash(get<0>(map->data[hint]));
               } else {
-                return map->data[hint].first;
+                return get<0>(map->data[hint]);
               }
-            }
-            if constexpr (hash::unhash_defined::value) {
+            } else if constexpr (hash::unhash_defined::value) {
               return pair<const key_type,mapped_type&>(
-                  map->hasher.unhash(map->data[hint].first),
-                  map->data[hint].second);
+                  map->hasher.unhash(get<0>(map->data[hint])),
+                  get<1>(map->data[hint]));
             } else {
               return pair<const key_type&,mapped_type&>(
-                  map->data[hint].first,
-                  map->data[hint].second
+                  get<0>(map->data[hint]),
+                  get<1>(map->data[hint])
                   );
             }
           }
@@ -1913,15 +1930,15 @@ namespace whash{
             if constexpr (is_same<void,mapped_type>::value) {
               if constexpr (hash::unhash_defined::value) {
                 return make_unique<key_type>(
-                    map->hasher.unhash(map->data[hint].first));
+                    map->hasher.unhash(get<0>(map->data[hint]))
+                    );
               } else {
-                return &map->data[hint].first;
+                return &get<0>(map->data[hint]);
               }
-            }
-            if constexpr (hash::unhash_defined::value) {
+            } else if constexpr (hash::unhash_defined::value) {
               return make_unique<pair<const key_type,mapped_type&>>(
-                  map->hasher.unhash(map->data[hint].first),
-                  map->data[hint].second);
+                  map->hasher.unhash(get<0>(map->data[hint])),
+                  get<1>(map->data[hint]));
             } else {
                 return &map->data[hint];
             }
@@ -1950,8 +1967,8 @@ namespace whash{
             }
             if constexpr (hash::unhash_defined::value) {
               return pair<const key_type,mapped_type&>(
-                  map->hasher.unhash(map->data[hint].first),
-                  map->data[hint].second);
+                  map->hasher.unhash(get<0>(map->data[hint])),
+                  get<1>(map->data[hint]));
             } else {
               return pair<const key_type&,mapped_type&>(map->data[hint]);
             }
@@ -1981,8 +1998,8 @@ namespace whash{
             }
             if constexpr (hash::unhash_defined::value) {
               return make_unique<pair<const key_type,mapped_type&>>(
-                  map->hasher.unhash(map->data[hint].first),
-                  map->data[hint].second);
+                  map->hasher.unhash(get<0>(map->data[hint])),
+                  get<1>(map->data[hint]));
             } else {
                 return &map->data[hint];
             }
@@ -1993,25 +2010,25 @@ namespace whash{
     iterator begin(){
       const size_type i = find_first();
       if constexpr (hash::unhash_defined::value) {
-        return iterator(i,hasher.unhash(data[i].first),this);
+        return iterator(i,hasher.unhash(get<0>(data[i])),this);
       } else {
-        return iterator(i,data[i].first,this);
+        return iterator(i,get<0>(data[i]),this);
       }
     }
     const_iterator begin() const {
       const size_type i = find_first();
       if constexpr (hash::unhash_defined::value) {
-        return const_iterator(i,hasher.unhash(data[i].first),this);
+        return const_iterator(i,hasher.unhash(get<0>(data[i])),this);
       } else {
-        return const_iterator(i,data[i].first,this);
+        return const_iterator(i,get<0>(data[i]),this);
       }
     }
     const_iterator cbegin() const {
       const size_type i = find_first();
       if constexpr (hash::unhash_defined::value) {
-        return const_iterator(i,hasher.unhash(data[i].first),this);
+        return const_iterator(i,hasher.unhash(get<0>(data[i])),this);
       } else {
-        return const_iterator(i,data[i].first,this);
+        return const_iterator(i,get<0>(data[i]),this);
       }
     }
     iterator end() {
@@ -2050,7 +2067,11 @@ namespace whash{
               order(key_of(val)),mapped_of(val));
         }
       } else {
-        allocator_traits<alloc>::construct(allocator,data+j,val,true_type{});
+        if constexpr (is_same<void,mapped_type>::value) {
+          allocator_traits<alloc>::construct(allocator,data+j,val,true_type{});
+        } else {
+          allocator_traits<alloc>::construct(allocator,data+j,val);
+        }
       }
       return {{j,key_of(val),this},true};
     }
@@ -2059,10 +2080,11 @@ namespace whash{
       if (i<datasize) return {iterator(i,key_of(val),this),false};
       ensure_size();
       const size_type j = reserve_node(key_of(val));
-      if constexpr (is_same<void,mapped_type>::value)
-        allocator_traits<alloc>::construct(allocator,data+j,{val,{}});
-      else
-        allocator_traits<alloc>::construct(allocator,data+j,val);
+      allocator_traits<alloc>::construct(allocator,data+j,val);
+      //if constexpr (is_same<void,mapped_type>::value)
+      //  allocator_traits<alloc>::construct(allocator,data+j,val);
+      //else
+      //  allocator_traits<alloc>::construct(allocator,data+j,val);
       return {{j,key_of(val),this},true};
     }
     template <class P>
@@ -2085,7 +2107,11 @@ namespace whash{
     }
     template <class... Args>
     pair<iterator, bool> emplace ( Args&&... args ){
-      return insert(value_type(args...));
+      if constexpr (is_same<mapped_type,void>::value) {
+        return insert(key_type(args...));
+      } else {
+        return insert(value_type(args...));
+      }
     }
     template <class... Args>
     iterator emplace_hint(const_iterator position,Args&&... args){
@@ -2094,7 +2120,7 @@ namespace whash{
     pair<iterator,iterator> equal_range(const key_type& k){
       const size_type i = find_node(k);
       if (i>=datasize) return {end(),end()};
-      iterator lo(i,data[i].first,this);
+      iterator lo(i,get<0>(data[i]),this);
       iterator hi(lo);
       ++hi;
       return {lo,hi};
@@ -2103,7 +2129,7 @@ namespace whash{
     equal_range ( const key_type& k ) const{
       const size_type i = find_node(k);
       if (i>=datasize) return {cend(),cend()};
-      iterator lo(i,data[i].first,this);
+      iterator lo(i,get<0>(data[i]),this);
       iterator hi(lo);
       ++hi;
       return {lo,hi};
@@ -2134,7 +2160,7 @@ namespace whash{
     /*void print_offsethist(){
       patchmap<int,size_t> hist;
       for (size_type i=0;i!=datasize;++i)
-        ++hist[int(map(order(data[i].first)))-int(i)];
+        ++hist[int(map(order(get<0>(data[i]))))-int(i)];
       for (auto it=hist.begin();it!=hist.end();++it)
         cout << it->first << " " << it->second << endl;
     }*/
