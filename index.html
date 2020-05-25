@@ -103,6 +103,7 @@ footer {
   margin: 0;
 }
 red { color: red; }
+orange { color: orange; }
 blue { color: blue; }
 green { color: green; }
 </style>
@@ -2867,6 +2868,62 @@ AElFTkSuQmCC" style="margin-right:2em;min-width:200px;"/>
   </p>
   <p>
   <a href="http://www.dcc.ufla.br/infocomp/index.php/INFOCOMP/article/view/581" target="_blank">INFOCOMP article 581</a>
+  </p>
+  <h3><a name="Miscellaneous">Miscellaneous improvements and future improvements</a></h3>
+  <p>
+  <h4><green>Bijective hash functions</green></h4>
+  <p>
+  Hash functions with minimal output size that do not introduce additional
+  collisions are necessarily bijective.
+  <a href="https://stackoverflow.com/questions/664014/what-integer-hash-function-are-good-that-accepts-an-integer-hash-key/57556517#57556517">Bijective functions</a>
+  are just the way to go when creating a hash function.
+  They can be composed arbitrarily and they can also be inverted.
+  They can be made to be arbitrarily hard to invert.
+  Exponentiation by squaring on a prime field for example is used in
+  cryptography, it is computationally very expensive to invert,
+  yet it is bijective.
+  It's a common misconception to think that the security of a cryptographic hash
+  function depends on hash collisions.
+  For a hash table however good mixing is all that matters, being easily
+  invertible can even be an advantage.
+  </p>
+  <h4><green>Store permutated data</green></h4>
+  <p>
+  Lookup is the most frequent operation in a hash table, therefore it imperative
+  that it is fast.
+  In the patchmap, because the data is ordered by the hash of the key,
+  for each lookup the hash of the key needs to be compared to several other
+  hashes.
+  To speed up this comparison the hashes could be stored alongside the 
+  data, like in some other hash tables.
+  Given a bijective hash function and its reciprocal however this space can be
+  saved and instead of storing hash and data we can just store the hash.
+  The data can be computed from the hash.
+  </p>
+  <h4><red>Resizing allocations</red></h4>
+  <p>
+  Some allocators are able to resize the allocations, similar to
+  <tt>realloc</tt>, but no C++ other than <tt>dlib::allocator</tt> expose that
+  feature. I experimented using resizing and the time to grow and shrink the
+  table can be reduced, but there are lots of corner cases which need to be
+  handeled correctly, and that's why this feature is not in the current version
+  of the patchmap.
+  </p>
+  <h4><red>lazy rehashing</red></h4>
+  <p>
+  Resizing without relocating is especially beneficial when there is a way to
+  craft the hash reduction so that only a fraction of the data actually needs
+  to move to a new location. The only hash table that I know of that manages
+  to make use of this ingenious idea is <tt>khash</tt>. When the table size is 
+  a factor of 2, the hash reduction can be as simple as take n bits of the hash.
+  When growing the table this means that only half of the keys in the table
+  need to be moved, making the grow operation even cheaper. If only there was a
+  way to generalise this trick to arbitrary hash table sizes!
+  </p>
+  <h4></h4>
+  <p></p>
+  <h4></h4>
+  <p></p>
   </p>
 </article>
 </section>
