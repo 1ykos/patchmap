@@ -42,24 +42,24 @@ int main(){
   patchmap<uint32_t,uint32_t> test(1u<<2);
   for (uint32_t i=0;i!=1u<<30;++i){
     const uint32_t j = gen_rand(i);
-    cout << "inserting " << j << " " << frac(hash(j)) << endl;
+    //cout << "inserting " << j << " " << frac(hash(j)) << endl;
     test[j];
-    test.print();
+    //test.print();
     if (test.count(j)==0) {
-      //test.print();
+      test.print();
       cout << "could not retrieve key that should be there (before erase)" << endl;
       cout << frac(hash(j)) << endl;
       return 1;
     }
-    cout << "erasing " << j << " " << frac(hash(j)) << endl;
+    //cout << "erasing " << j << " " << frac(hash(j)) << endl;
     test.erase(j);
-    test.print();
-    cout << "inserting " << j << " " << frac(hash(j)) << endl;
+    //test.print();
+    //cout << "inserting " << j << " " << frac(hash(j)) << endl;
     test[j];
-    test.print();
+    //test.print();
     std::uniform_int_distribution<uint32_t> u32distr1(0,i);
     const uint32_t k = gen_rand(u32distr1(mr));
-    cout << "lookup " << j << " " << frac(hash(k)) << endl;
+    //cout << "lookup " << j << " " << frac(hash(k)) << endl;
     if (test.count(k)==0) {
       //test.print();
       cout << "could not retrieve key that should be there" << endl;
@@ -68,9 +68,9 @@ int main(){
     }
     std::uniform_int_distribution<uint32_t> u32distr0(i+1,~uint32_t(0));
     const uint32_t v = u32distr0(mr);
-    cout << "generated random value " << v << endl;
+    //cout << "generated random value " << v << endl;
     const uint32_t l = gen_rand(v);
-    cout << "lookup " << l << " " << frac(hash(l)) << endl;
+    //cout << "lookup " << l << " " << frac(hash(l)) << endl;
     if (test.count(l)){
       test.print();
       cout << "found something that should not be there" << endl;
