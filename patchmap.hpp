@@ -11,8 +11,6 @@
 #include <iostream>
 #include <iterator>
 #include <stdexcept>
-#include <boost/container/allocator.hpp>
-#include <boost/interprocess/allocators/allocator.hpp>
 #include <typeinfo>
 #include <exception>
 #include <memory>
@@ -282,8 +280,8 @@ namespace whash{
   template<>
   class hash<uint32_t,void>{
     private:
+      const uint32_t p = 0x55555555ul;
       const uint32_t a = 3370923577ul;
-      const uint32_t i = modular_inverse(a);
     public:
       typedef typename true_type::type is_injective;
       typedef typename true_type::type unhash_defined;
@@ -292,13 +290,15 @@ namespace whash{
       }
       constexpr uint32_t operator()(uint32_t v) const {
         v^= v>>16;
-        v*= a;
+        v*= p;
         v^= v>>16;
+        v*= a;  
         return v;
       }
       constexpr uint32_t unhash(uint32_t v) const {
+        v*= modular_inverse(a);
         v^= v>>16;
-        v*= i;
+        v*= modular_inverse(p);
         v^= v>>16;
         return v;
       }
@@ -307,8 +307,8 @@ namespace whash{
   template<>
   class hash<uint64_t,void>{
     private:
+      const uint64_t  p = 0x5555555555555555ull;
       const uint64_t  a = 15864664792644967873ull;
-      const uint64_t  i = modular_inverse(a);
     public:
       typedef typename true_type::type is_injective;
       typedef typename true_type::type unhash_defined;
@@ -317,14 +317,15 @@ namespace whash{
       }
       uint64_t constexpr operator()(uint64_t v) const {
         v^= v>>32;
-        v*= a;
+        v*= p;
         v^= v>>32;
+        v*= a;
         return v;
       }  
       uint64_t constexpr unhash(uint64_t v) const {
-        const uint64_t  a = 15864664792644967873ull;
-        v^= v>>32;
         v*= modular_inverse(a);
+        v^= v>>32;
+        v*= modular_inverse(p);
         v^= v>>32;
         return v;
       }
@@ -451,6 +452,7 @@ namespace whash{
       }
   };
 
+
   template<class key_type,
            class mapped_type,
            class hash        = hash<key_type>,
@@ -459,12 +461,6 @@ namespace whash{
              hash::is_injective::value,
              dummy_comp<key_type>,
              std::less<key_type>>::type,
-           /*class alloc       = typename boost::container::allocator<
-             typename conditional<
-               std::is_same<mapped_type,void>::value,
-               std::tuple<key_type,std::true_type>,
-               std::tuple<key_type,mapped_type>
-             >::type,2>,*/
            class alloc       = typename std::allocator
            <
              tuple
@@ -477,8 +473,7 @@ namespace whash{
                  mapped_type
                >::type
              >
-           >,
-           bool dynamic      = true
+           >
           >
   class patchmap{
     public:
@@ -495,13 +490,42 @@ namespace whash{
                                   mapped_type>::type
                                   _mapped_type;
     private:
+      template
+      <
+        size_type resize_nom  ,size_type resize_denom,
+        size_type nextsize_nom,size_type nextsize_denom
+      >
+      struct patchmap_sizing_policy{
+        const size_type& num_data;
+        const size_type& datasize;
+        patchmap_sizing_policy(
+            const size_type& num_data,const size_type& datasize
+            ) : num_data(num_data), datasize(datasize) {}
+        constexpr size_type nextsize() const {
+          size_t nextsize = (nextsize_nom*datasize+nextsize_denom)
+                            /nextsize_denom;
+          nextsize = (nextsize+digits<size_type>()-1)/digits<size_type>();
+          nextsize*= digits<size_type>();
+          return nextsize;
+        }
+        constexpr bool is_sufficient() const {
+          return ((num_data*resize_nom)<(datasize*resize_denom));
+        }
+      };
+      using desperate_patchmap_sizing_policy = // desperately save memory
+        patchmap_sizing_policy<32,31,107,89>;
+      using aggressive_patchmap_sizing_policy = // agressive resizing for speed
+        patchmap_sizing_policy<5,4,12,7>;
+      using default_patchmap_sizing_policy = // best trade-off
+        patchmap_sizing_policy<7,6,53,32>;
+      using sizing_policy = default_patchmap_sizing_policy;
       size_type num_data;
       size_type datasize;
       size_type masksize;
       value_type * data;
       size_type  * mask;
       allocator_type allocator;
-      boost::container::allocator<size_type,2> maskallocator;
+      std::allocator<size_type> maskallocator;
       comp  comparator;
       equal equator;
       hash  hasher;
@@ -1084,13 +1108,12 @@ namespace whash{
         size_type old_datasize = n;
         size_type old_masksize =
           (old_datasize+digits<size_type>()-1)/digits<size_type>();
-        value_pointer old_data = allocator.allocate    (old_datasize); 
-        size_type * old_mask = mask;
-        old_mask = maskallocator.allocation_command(
-            boost::interprocess::allocate_new|boost::interprocess::zero_memory,
-            old_masksize,
-            old_masksize,
-            old_mask);
+        value_pointer old_data =
+          std::allocator_traits<alloc>::allocate(allocator,
+                                                     old_datasize);
+        size_type * old_mask =
+          std::allocator_traits<std::allocator<size_t>>::allocate(maskallocator,
+                                                         old_masksize);
         for (size_type i=0;i!=old_masksize;++i) old_mask[i]=0;
         num_data = 0;
         swap(old_mask,mask);
@@ -1112,8 +1135,16 @@ namespace whash{
           }
         }
         assert(check_ordering());
-        maskallocator.deallocate(old_mask,old_masksize);
-        allocator.deallocate    (old_data,old_datasize);
+        std::allocator_traits<std::allocator<size_t>>::deallocate(
+            maskallocator,
+            old_mask,
+            old_masksize
+            );
+        std::allocator_traits<alloc>::deallocate(
+            allocator,
+            old_data,
+            old_datasize
+            );
       }
     public:
       // constructor
@@ -1125,12 +1156,17 @@ namespace whash{
           data = allocator_traits<alloc>::allocate(allocator,datasize);
         else data = nullptr;
         masksize = (datasize+digits<size_type>()-1)/digits<size_type>();
-        if (masksize) mask = maskallocator.allocate(masksize);
+        if (masksize) mask =
+          allocator_traits<std::allocator<size_t>>::allocate(maskallocator,
+                                                             masksize);
         else mask = nullptr;
         for (size_type i=0;i!=masksize;++i) mask[i]=0;
       }
       ~patchmap(){                                  // destructor
-        maskallocator.deallocate(mask,masksize);
+        allocator_traits<std::allocator<size_t>>::deallocate(
+            maskallocator,
+            mask,
+            masksize);
         allocator_traits<alloc>::deallocate(allocator,data,datasize);
       }
       patchmap(patchmap&& other) noexcept  // move constructor
@@ -1170,12 +1206,18 @@ namespace whash{
            comp_other,
            alloc_other
          > other_type;
-        maskallocator.deallocate(mask,masksize);
+        allocator_traits<std::allocator<size_t>>::deallocate(
+            maskallocator,
+            data,
+            masksize);
         allocator_traits<alloc>::deallocate(allocator,data,datasize);
         num_data = other.num_data;
         datasize = other.datasize;
         masksize = other.masksize;
-        if (masksize) mask = maskallocator.allocate(masksize);
+        if (masksize)
+          mask = allocator_traits<std::allocator<size_t>>::allocate(
+            maskallocator,
+            masksize);
         else mask = nullptr;
         for (size_type i=0;i!=masksize;++i) mask[i]=0;
         if (datasize)
@@ -1204,8 +1246,12 @@ namespace whash{
         num_data = other.num_data;
         datasize = other.datasize;
         masksize = other.masksize;
-        if (masksize) mask = maskallocator.allocate(masksize);
-        else mask = nullptr;
+        if (masksize)
+          mask = allocator_traits<std::allocator<size_t>>::allocate(
+              maskallocator,
+              masksize);
+        else
+          mask = nullptr;
         for (size_type i=0;i!=masksize;++i) mask[i]=0;
         if (datasize)
           data = allocator_traits<alloc>::allocate(allocator,datasize);
@@ -1309,98 +1355,7 @@ namespace whash{
         if (n<num_data) return;
         if (VERBOSE_PATCHMAP)
           cerr << "resizing from " << datasize << " to " << n << endl;
-        resize_out_of_place(n); return;
-        if constexpr (!is_same<
-            alloc,
-            boost::container::allocator<std::pair<key_type,mapped_type>,2>
-            >::value) {
-          resize_out_of_place(n);
-          return;
-        } else {
-          if (datasize == 0){
-            resize_out_of_place(n);
-            return;
-          }
-          resize_out_of_place(n); return;
-          if (VERBOSE_PATCHMAP)
-            cerr << "attempting to resize in place " << endl;
-          size_type old_datasize = n;
-          size_type min_datasize = (datasize+old_datasize+1)/2;
-          value_pointer reuse = data;
-          value_pointer old_data = allocator.allocation_command(
-            //boost::interprocess::expand_bwd
-              boost::interprocess::allocate_new
-             |boost::interprocess::expand_fwd,
-              min_datasize,
-              old_datasize,
-              reuse);
-          //cerr << "scary allocation_command did not crash" <<  endl;
-          size_type old_masksize =
-            (old_datasize+digits<size_type>()-1)/digits<size_type>();
-          //cerr << "allocating mask " << old_masksize << endl;
-          /*size_type * old_mask = maskallocator.allocation_command(
-              boost::interprocess::allocate_new|boost::interprocess::zero_memory,
-              old_masksize,
-              old_masksize,
-              nullptr);*/
-          swap(datasize,old_datasize);
-          // should not be necessary but it is, boost has not implemented
-          // zero_memory yet :( TODO myself
-          if (reuse){
-            //if (old_data<data) cerr << "backwards expansion, oO " << endl;
-            if (VERBOSE_PATCHMAP)
-              cerr << "in place resize, yea :D " << endl;
-            size_type * reuse = mask;
-            size_type * old_mask = maskallocator.allocation_command(
-              boost::interprocess::allocate_new
-             |boost::interprocess::expand_fwd,
-              old_masksize,
-              old_masksize,
-              reuse);
-            if (!reuse) for(size_type i=0;i<masksize;++i) old_mask[i]=mask[i];
-            for(size_type i=masksize; i<old_masksize;++i) old_mask[i]=0;
-            if (!reuse) swap(old_mask,mask);
-            swap(old_masksize,masksize);
-            num_data = 0;
-            //cerr << old_data << " "<< data << endl;
-            for (size_type n=old_datasize-1;n<old_datasize;--n){
-              if (is_set(n)){
-              //const size_type i = n/digits<size_type>();
-              //const size_type j = n%digits<size_type>();
-              //if (old_mask[i]&(size_type(1)<<(digits<size_type>()-j-1))){
-                value_type temp = move(data[n]);
-                unset(n);
-                const size_type l = reserve_node(get<0>(temp));
-                data[l] = move(temp);
-              }
-            }
-            assert(check_ordering());
-            if (!reuse) maskallocator.deallocate(old_mask,old_masksize); 
-          } else {
-            size_type * old_mask = maskallocator.allocate(old_masksize);
-            for (size_type i=0;i!=old_masksize;++i) old_mask[i]=0;
-            swap(old_mask,mask);
-            swap(old_masksize,masksize);
-            num_data = 0;
-            swap(old_data,data);
-            if (VERBOSE_PATCHMAP)
-              cerr << "no reuse :/ " << endl;
-            //cerr << old_data << " "<< data << endl;
-            for (size_type n=0;n<old_datasize;++n){
-              const size_type i = n/digits<size_type>();
-              const size_type j = n%digits<size_type>();
-              if (old_mask[i]&(size_type(1)<<(digits<size_type>()-j-1))){
-                const size_type l = reserve_node(get<0>(old_data[n]));
-                data[l] = old_data[n];
-              }
-            }
-            assert(check_ordering());
-            //cerr << "scary free " << endl;
-            allocator.deallocate    (old_data,old_datasize);
-            maskallocator.deallocate(old_mask,old_masksize); 
-          }
-          //cerr << "deallocating old mask" << endl;
-        }
+        resize_out_of_place(n);
       }
       size_type inline size() const { return num_data; }
       size_type const test_size() const {
@@ -1425,40 +1380,10 @@ namespace whash{
         if (i+1<datasize) if (!index_index_is_less(i,i+1)) return false;
         return true;
       }
-      void inline ensure_size(){
-        if constexpr (!dynamic) return;
-#if defined PATCHMAP_EXPANSIVE
-        //if (num_data*9<datasize*7) return; 
-        if (num_data*5<datasize*4) return;
-        if (datasize) {
-          size_type nextsize = (12*datasize+6)/7;
-          nextsize = (nextsize+digits<size_type>()-1)/digits<size_type>();
-          nextsize*= digits<size_type>();
-          resize(nextsize);
-        } else {
-          resize(256);
-        }
-        return;
-#endif
-        if (num_data*8 < datasize*7 ) return;
-        size_type nextsize;
-        if (datasize < 257) {
-          if (datasize == 0) {
-            nextsize = digits<size_type>();
-          } else {
-            nextsize = 2*datasize;
-            nextsize = (nextsize+digits<size_type>()-1)/digits<size_type>();
-            nextsize*= digits<size_type>();
-          }
-        } else {
-          //nextsize = 50*datasize/31;
-          //nextsize = 48*datasize/31;
-          nextsize = 47*datasize/31;
-          //nextsize = 45*datasize/31;
-          nextsize = (nextsize+digits<size_type>()-1)/digits<size_type>();
-          nextsize*= digits<size_type>();
-        }
-        resize(nextsize);
+      void inline ensure_size() {
+        sizing_policy policy(num_data,datasize);
+        if (policy.is_sufficient()) return;
+        resize(policy.nextsize());
       }
       _mapped_type& operator[](const key_type& k){
         const size_type i = find_node(k);
@@ -2202,46 +2127,6 @@ namespace whash{
   void swap(patchmap<K,K,hash,equal,comp,A>&,
             patchmap<K,K,hash,equal,comp,A>&);
   */
-  
-  template<class key_type    = int,  // int is the default, why not
-           class mapped_type = int,  // int is the default, why not
-           class hash        = hash<key_type>,
-           class equal       = std::equal_to<key_type>,
-           class comp        = typename conditional<hash::is_injective::value,
-                                                    dummy_comp<key_type>,
-                                                    std::less<key_type>>::type,
-           class alloc       = typename boost::container::allocator<
-             typename conditional<
-               std::is_same<mapped_type,void>::value,
-               std::pair<key_type,true_type>,
-               std::pair<key_type,mapped_type>
-             >::type,2>
-          >
-  using static_patchmap =
-    patchmap<key_type,mapped_type,hash,equal,comp,alloc,false>;
-  
-  template<class key_type,           // unordered_map has no default key_type
-           class mapped_type,        // unordered_map has no default mapped_type
-           class hash        = hash<key_type>,
-           class equal       = std::equal_to<key_type>,
-           class alloc       = typename // mapped_type must not be void
-             boost::container::allocator<std::pair<key_type,mapped_type>,2>,
-           class comp        = typename conditional<hash::is_injective::value,
-             dummy_comp<key_type>,typename std::less<key_type>::type>::type
-          >
-  using unordered_map =
-    patchmap<key_type,mapped_type,hash,equal,alloc,comp>;
-  
-  template<class key_type,           // unordered_set has no default key_type
-           class hash        = hash<key_type>,
-           class equal       = std::equal_to<key_type>,
-           class alloc       = typename
-             boost::container::allocator<pair<key_type,true_type>,2>,
-           class comp        = typename conditional<hash::is_injective::value,
-             dummy_comp<key_type>,typename std::less<key_type>::type>::type
-          >
-  using unordered_set =
-    patchmap<key_type,void,hash,equal,alloc,comp>;
   
 }
 #endif // ORDERED_PATCH_MAP_H
