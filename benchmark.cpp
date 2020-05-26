@@ -65,6 +65,9 @@
 #ifdef HORDI
 #include "hash_set.h"
 #endif
+#ifdef PHAMT
+#include "hash_trie.hpp"
+#endif
 
 #include <stdio.h>
 #include <proc/readproc.h>
@@ -73,13 +76,14 @@ using wmath::reflect;
 using wmath::rol;
 using wmath::ror;
 
+using std::bitset;
+using std::cerr;
 using std::cout;
 using std::endl;
-using std::bitset;
-using std::setw;
 using std::get;
-using std::stoi;
 using std::max;
+using std::setw;
+using std::stoi;
 
 #ifdef KHASH
 KHASH_MAP_INIT_INT64(64, uint64_t)
@@ -180,6 +184,9 @@ int main(int argc, char** argv){
 #ifdef HORDI
   hordi::hash_map<uint64_t,uint64_t> test;
 #endif
+#ifdef PHAMT
+  hamt::hash_trie<uint64_t> test;
+#endif
   std::uniform_int_distribution<size_t> distr;
   double counter = 0;
   double insert_time = 0;
@@ -197,6 +204,13 @@ int main(int argc, char** argv){
   double typical_memory = 0;
   double memory = 0;
   auto start = std::clock();
+  size_t next_point = 0;
+  double avg_insert_time = 0;
+  double avg_delete_time = 0;
+  double avg_find_time = 0;
+  double avg_not_find_time = 0;
+  double avg_memory = 0;
+  double avg_counter = 0;
   for (uint64_t i=0;i!=N/4096;++i) {
     auto start = std::clock();
     for (uint64_t j=0;j!=4096;++j) {
@@ -210,6 +224,8 @@ int main(int argc, char** argv){
       *reinterpret_cast<size_t*>(pvalue) = n;
 #elif WHASH
       insert_into_hash_table(&n,&n,&test);
+#elif PHAMT
+      test.insert(n);
 #else
       test[n]=n;
 #endif
@@ -235,6 +251,9 @@ int main(int argc, char** argv){
       sand+=*reinterpret_cast<uint64_t*>(pvalue);
 #elif WHASH
       sand+=(get_from_hash_table(&n,&test)!=NULL);
+#elif PHAMT
+      //sand+=test.find(n).size();
+      test.find(n);
 #else
       sand+=test.count(n);
 #endif
@@ -254,6 +273,9 @@ int main(int argc, char** argv){
       sand+=(pvalue!=NULL);
 #elif WHASH
       sand+=(get_from_hash_table(&n,&test)!=NULL);
+#elif PHAMT
+      //sand+=test.find(n).size();
+      test.find(n);
 #else
       sand+=test.count(n);
 #endif
@@ -272,6 +294,8 @@ int main(int argc, char** argv){
       JLD(ret,j_array,n);
 #elif WHASH
       del_from_hash_table(&n,&test);
+#elif PHAMT
+      1;
 #else
       test.erase(n);
 #endif
@@ -289,19 +313,41 @@ int main(int argc, char** argv){
       *reinterpret_cast<size_t*>(pvalue) = n;
 #elif WHASH
       insert_into_hash_table(&n,&n,&test);
+#elif PHAMT
+      //test.insert(n);
+      1;
 #else
       test[n]=n;
 #endif
     }
-    //cout << i*4096 << " " << num_set << " " << test.num_elem << endl;
-    /*
-    cout << memory/(4096)        << " "
-         << insert_time/(4096)   << " "
-         << delete_time/(4096)   << " "
-         << find_time/(4096)     << " "
-         << not_find_time/(4096) << endl;*/
+    avg_counter += 4096;
+    avg_memory += memory/(i+1);
+    avg_insert_time += insert_time;
+    avg_delete_time += delete_time;
+    avg_find_time += find_time;
+    avg_not_find_time += not_find_time;
+    if (i==next_point) {
+      avg_counter = 1.0/avg_counter;
+      avg_memory*=avg_counter;
+      avg_insert_time*=avg_counter;
+      avg_delete_time*=avg_counter;
+      avg_find_time*=avg_counter;
+      avg_not_find_time*=avg_counter;
+      cerr << (i+1)*4096        << " "
+           << avg_memory        << " "
+           << avg_insert_time   << " "
+           << avg_delete_time   << " "
+           << avg_find_time     << " "
+           << avg_not_find_time << endl;
+      avg_counter = 0;
+      avg_memory = 0;
+      avg_insert_time = 0;
+      avg_delete_time = 0;
+      avg_find_time = 0;
+      avg_not_find_time = 0;
+      next_point = (next_point==next_point*17/16)?next_point+1:next_point*17/16;
+    }
   }
-  
   cout << typical_memory/N        << " "
        << typical_insert_time/N   << " "
        << typical_delete_time/N   << " "
