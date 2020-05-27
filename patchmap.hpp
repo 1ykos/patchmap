@@ -377,7 +377,6 @@ namespace whash{
       }
   };
 
-
   template<>
   class hash<string>
   {
@@ -451,30 +450,30 @@ namespace whash{
         return h;
       }
   };
-
-
-  template<class key_type,
-           class mapped_type,
-           class hash        = hash<key_type>,
-           class equal       = std::equal_to<key_type>,
-           class comp        = typename conditional<
-             hash::is_injective::value,
-             dummy_comp<key_type>,
-             std::less<key_type>>::type,
-           class alloc       = typename std::allocator
-           <
-             tuple
-             <
-               key_type,
-               typename conditional
-               <
-                 std::is_same<mapped_type,void>::value,
-                 std::true_type,
-                 mapped_type
-               >::type
-             >
-           >
-          >
+  
+  template<
+    class key_type,
+    class mapped_type,
+    class hash        = hash<key_type>,
+    class equal       = std::equal_to<key_type>,
+    class comp        = typename conditional<
+      hash::is_injective::value,
+      dummy_comp<key_type>,
+      std::less<key_type>>::type,
+    class alloc       = typename std::allocator
+    <
+      tuple
+      <
+        key_type,
+        typename conditional
+        <
+          std::is_same<mapped_type,void>::value,
+          std::true_type,
+          mapped_type
+        >::type
+      >
+    >
+  >
   class patchmap{
     public:
       typedef alloc allocator_type;
@@ -1104,7 +1103,7 @@ namespace whash{
            );
         return get<1>(hashmap.data[i]);
       }
-      void const resize_out_of_place(const size_type& n){
+      void const resize_out_of_place(const size_type& n) {
         size_type old_datasize = n;
         size_type old_masksize =
           (old_datasize+digits<size_type>()-1)/digits<size_type>();
@@ -1112,8 +1111,9 @@ namespace whash{
           std::allocator_traits<alloc>::allocate(allocator,
                                                      old_datasize);
         size_type * old_mask =
-          std::allocator_traits<std::allocator<size_t>>::allocate(maskallocator,
-                                                         old_masksize);
+          std::allocator_traits<std::allocator<size_type>>::allocate(
+              maskallocator,
+              old_masksize);
         for (size_type i=0;i!=old_masksize;++i) old_mask[i]=0;
         num_data = 0;
         swap(old_mask,mask);
@@ -1126,7 +1126,9 @@ namespace whash{
           if (old_mask[i]&(size_type(1)<<(digits<size_type>()-j-1))){
             size_type l;
             if constexpr (hash::unhash_defined::value) {
-              l = reserve_node(key_type(0),get<0>(old_data[n]));
+              l = reserve_node(
+                  hasher.unhash(get<0>(data[n])),
+                  get<0>(old_data[n]));
             } else {
               l = reserve_node(get<0>(old_data[n]));
             }
@@ -1135,7 +1137,7 @@ namespace whash{
           }
         }
         assert(check_ordering());
-        std::allocator_traits<std::allocator<size_t>>::deallocate(
+        std::allocator_traits<std::allocator<size_type>>::deallocate(
             maskallocator,
             old_mask,
             old_masksize
@@ -1146,24 +1148,77 @@ namespace whash{
             old_datasize
             );
       }
+#if 0
+      void const resize_inplace(const size_type& n) {
+        size_type new_datasize = n;
+        size_type new_masksize =
+          (new_datasize+digits<size_type>()-1)/digits<size_type>();
+        if (new_datasize<datasize) {
+          size_type old_datasize = datasize;
+          datasize = new_datasize;
+          for (size_type n=0;n<old_datasize;++n) {
+            const size_type i = n/digits<size_type>();
+            const size_type j = n%digits<size_type>();
+            if (mask[i]&(size_type(1)<<(digits<size_type>()-j-1))) {
+              size_type l;
+              if constexpr (hash::unhash_defined::value) {
+                l = reserve_node(
+                    hasher.unhash(get<0>(data[n])),
+                    get<0>(data[n]));
+              } else {
+                l = reserve_node(get<0>(data[n]));
+              }
+              allocator_traits<alloc>::construct(allocator,data+l,old_data[n]);
+              set(l);
+            }
+          }
+        }
+        data.resize(new_datasize);
+        mask.resize(new_masksize);
+        if (new_datasize>datasize) {
+          for (size_type i=masksize;i!=new_masksize;++i) mask[i]=0;
+          for (size_type n=datasize-1;n<datasize;--n) {
+            const size_type i = n/digits<size_type>();
+            const size_type j = n%digits<size_type>();
+            if (mask[i]&(size_type(1)<<(digits<size_type>()-j-1))) {
+              size_type l;
+              if constexpr (hash::unhash_defined::value) {
+                l = reserve_node(
+                    hasher.unhash(get<0>(data[n])),
+                    get<0>(data[n]));
+              } else {
+                l = reserve_node(get<0>(data[n]));
+              }
+              allocator_traits<alloc>::construct(allocator,data+l,old_data[n]);
+              set(l);
+            }
+          }
+        }
+      }
+#endif
     public:
       // constructor
       patchmap(const size_type& datasize = 0)
         :datasize(datasize)
       {
         num_data = 0;
-        if (datasize)
-          data = allocator_traits<alloc>::allocate(allocator,datasize);
-        else data = nullptr;
         masksize = (datasize+digits<size_type>()-1)/digits<size_type>();
-        if (masksize) mask =
-          allocator_traits<std::allocator<size_t>>::allocate(maskallocator,
-                                                             masksize);
-        else mask = nullptr;
+        if (datasize) {
+          data = allocator_traits<alloc>::allocate(allocator,datasize);
+        } else {
+          data = nullptr;
+        }
+        if (masksize) {
+          mask = allocator_traits<std::allocator<size_type>>::allocate(
+              maskallocator,
+              masksize);
+        } else {
+          mask = nullptr;
+        }
         for (size_type i=0;i!=masksize;++i) mask[i]=0;
       }
       ~patchmap(){                                  // destructor
-        allocator_traits<std::allocator<size_t>>::deallocate(
+        allocator_traits<std::allocator<size_type>>::deallocate(
             maskallocator,
             mask,
             masksize);
@@ -1206,7 +1261,7 @@ namespace whash{
            comp_other,
            alloc_other
          > other_type;
-        allocator_traits<std::allocator<size_t>>::deallocate(
+        allocator_traits<std::allocator<size_type>>::deallocate(
             maskallocator,
             data,
             masksize);
@@ -1215,7 +1270,7 @@ namespace whash{
         datasize = other.datasize;
         masksize = other.masksize;
         if (masksize)
-          mask = allocator_traits<std::allocator<size_t>>::allocate(
+          mask = allocator_traits<std::allocator<size_type>>::allocate(
             maskallocator,
             masksize);
         else mask = nullptr;
@@ -1247,7 +1302,7 @@ namespace whash{
         datasize = other.datasize;
         masksize = other.masksize;
         if (masksize)
-          mask = allocator_traits<std::allocator<size_t>>::allocate(
+          mask = allocator_traits<std::allocator<size_type>>::allocate(
               maskallocator,
               masksize);
         else
@@ -1933,6 +1988,7 @@ namespace whash{
     typedef const_noconst_iterator<false> iterator;
     typedef const_noconst_iterator<true>  const_iterator;    
     iterator begin(){
+      if (datasize==0) return end();
       const size_type i = find_first();
       if constexpr (hash::unhash_defined::value) {
         return iterator(i,hasher.unhash(get<0>(data[i])),this);
@@ -1941,6 +1997,7 @@ namespace whash{
       }
     }
     const_iterator begin() const {
+      if (datasize==0) return end();
       const size_type i = find_first();
       if constexpr (hash::unhash_defined::value) {
         return const_iterator(i,hasher.unhash(get<0>(data[i])),this);
@@ -1949,6 +2006,7 @@ namespace whash{
       }
     }
     const_iterator cbegin() const {
+      if (datasize==0) return cend();
       const size_type i = find_first();
       if constexpr (hash::unhash_defined::value) {
         return const_iterator(i,hasher.unhash(get<0>(data[i])),this);
