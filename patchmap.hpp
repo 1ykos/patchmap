@@ -1920,7 +1920,9 @@ namespace whash{
                   map->hasher.unhash(get<0>(map->data[hint])),
                   get<1>(map->data[hint]));
             } else {
-                return &map->data[hint];
+              return make_unique<pair<const key_type,mapped_type&>>(
+                  get<0>(map->data[hint]),
+                  get<1>(map->data[hint]));
             }
           }
           auto operator*() const {
@@ -1944,13 +1946,17 @@ namespace whash{
               } else {
                 return map->data[hint].first;
               }
-            }
-            if constexpr (hash::unhash_defined::value) {
-              return pair<const key_type,mapped_type&>(
-                  map->hasher.unhash(get<0>(map->data[hint])),
-                  get<1>(map->data[hint]));
             } else {
-              return pair<const key_type&,mapped_type&>(map->data[hint]);
+              if constexpr (hash::unhash_defined::value) {
+                return pair<const key_type,mapped_type&>(
+                    map->hasher.unhash(get<0>(map->data[hint])),
+                    get<1>(map->data[hint]));
+              } else {
+                return pair<const key_type&,mapped_type&>(
+                    get<0>(map->data[hint]),
+                    get<1>(map->data[hint])
+                    );
+              }
             }
           }
           auto operator->() const {
@@ -1975,13 +1981,16 @@ namespace whash{
               } else {
                 return &map->data[hint].first;
               }
-            }
-            if constexpr (hash::unhash_defined::value) {
-              return make_unique<pair<const key_type,mapped_type&>>(
-                  map->hasher.unhash(get<0>(map->data[hint])),
-                  get<1>(map->data[hint]));
             } else {
-                return &map->data[hint];
+              if constexpr (hash::unhash_defined::value) {
+                return make_unique<pair<const key_type,mapped_type&>>(
+                    map->hasher.unhash(get<0>(map->data[hint])),
+                    get<1>(map->data[hint]));
+              } else {
+                return make_unique<pair<const key_type,mapped_type&>>(
+                    get<0>(map->data[hint]),
+                    get<1>(map->data[hint]));
+              }
             }
           }
     };
