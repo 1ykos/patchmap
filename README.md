@@ -18,7 +18,7 @@ int main() {
 }
 ```
 ```bash
-> g++ -O3 -std=c++17 -lboost_container -DNDEBUG main.cpp
+> g++ -O3 -std=c++17 -DNDEBUG main.cpp
 ```
 
 This hashmap is inspired by the 1973 publication "Ordered hash tables".
