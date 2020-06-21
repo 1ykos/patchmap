@@ -23,6 +23,7 @@ namespace whash{
   using std::conditional;
   using std::cout;
   using std::decay;
+  using std::declval;
   using std::enable_if;
   using std::endl;
   using std::false_type;
@@ -31,6 +32,7 @@ namespace whash{
   using std::index_sequence_for;
   using std::initializer_list;
   using std::integral_constant;
+  using std::invoke_result;
   using std::is_const;
   using std::is_fundamental;
   using std::is_integral;
@@ -51,6 +53,7 @@ namespace whash{
   using std::tuple_size;
   using std::unique_ptr;
   using std::vector;
+  using std::void_t;
 
   template<class T>
   double frac(const T& n){
@@ -234,11 +237,31 @@ namespace whash{
     return x;
   }
 
+  template <template <class...> class trait, class always_void, class... args>
+  struct detector : std::false_type {};
+  
+  template <template <class...> class trait,class... args>
+  struct detector<trait,void_t<trait<args...>>,args...> : std::true_type {};
+
+  template<class hash,class hash_type>
+  using unhash_method_t = decltype(declval<hash>().unhash(hash_type{}));
+
+  template<class hash,class hash_type>
+  using unhash_defined =
+    typename detector<unhash_method_t,void,hash,hash_type>::type;
+
+  template <class hash,class hash_type, typename = int>
+  struct is_injective : unhash_defined<hash,hash_type>{};
+  
+  //template <typename T>
+  //struct is_injective <T, decltype((void) T::is_injective, 0)>
+  //: std::true_type {}; // TODO why does this not override previous def
+
   template<typename T,class enable = void>
   class hash;
   
   template<>
-  class hash<uint8_t>{
+  class hash<uint8_t,void>{
     private:
       const uint8_t a = 97u;
       const uint8_t i = modular_inverse(a);
@@ -457,14 +480,18 @@ namespace whash{
     class hash        = hash<key_type>,
     class equal       = std::equal_to<key_type>,
     class comp        = typename conditional<
-      hash::is_injective::value,
+      is_injective<hash,typename invoke_result<hash,key_type&>::type>::value,
       dummy_comp<key_type>,
       std::less<key_type>>::type,
     class alloc       = typename std::allocator
     <
       tuple
       <
-        key_type,
+        typename conditional<
+          unhash_defined<hash,typename invoke_result<hash,key_type&>::type>::value,
+          typename invoke_result<hash,key_type&>::type,
+          key_type
+        >::type,
         typename conditional
         <
           std::is_same<mapped_type,void>::value,
@@ -585,7 +612,7 @@ namespace whash{
       bool inline is_equal(
           const pair<key_type,hash_type> a,
           const key_type b) const {
-        if constexpr (hash::unhash_defined::value) {
+        if constexpr (unhash_defined<hash,key_type>::value) {
           return get<1>(a) == b;
         } else {
           return equator(get<0>(a),b);
@@ -597,7 +624,7 @@ namespace whash{
           const hash_type& oa,
           const hash_type& ob
           ) const {
-        if constexpr (hash::is_injective::value){
+        if constexpr (is_injective<hash,hash_type>::value){
           assert(equator(a,b)==(oa==ob));
           if (oa<ob) return true;
           else       return false;
@@ -624,7 +651,7 @@ namespace whash{
           const hash_type& ob
           ) const {
         
-        if constexpr (hash::is_injective::value){
+        if constexpr (is_injective<hash,hash_type>::value){
           assert(equator(a,b)==(oa==ob));
           if (oa>ob) return true;
           else       return false;
@@ -695,7 +722,7 @@ namespace whash{
       }*/
       bool inline index_key_is_less(const size_type& i,const key_type& k) const{
         if (is_set(i)) {
-          if constexpr (hash::unhash_defined::value) {
+          if constexpr (unhash_defined<hash,key_type>::value) {
             return is_less(unhash(get<0>(data[i])),k,get<0>(data[i]),order(k));
           } else {
             return is_less(get<0>(data[i]),k);
@@ -705,7 +732,7 @@ namespace whash{
       }
       bool inline key_index_is_less(const key_type& k,const size_type& i) const{
         if (is_set(i)) {
-          if constexpr (hash::unhash_defined::value) {
+          if constexpr (unhash_defined<hash,key_type>::value) {
             return is_less(k,hasher.unhash(get<0>(data[i])),
                            order(k),get<0>(data[i]));
           } else {
@@ -719,21 +746,21 @@ namespace whash{
         assert(i<datasize);
         assert(j<datasize);
         if (is_set(i)&&is_set(j)) {
-          if constexpr (hash::unhash_defined::value) {
+          if constexpr (unhash_defined<hash,key_type>::value) {
             return get<0>(data[i]) < get<0>(data[j]);
           } else {
             return is_less(get<0>(data[i]),get<0>(data[j]));
           }
         }
         if (is_set(i)) {
-          if constexpr (hash::unhash_defined::value) {
+          if constexpr (unhash_defined<hash,key_type>::value) {
             return map(get<0>(data[i]))<j;
           } else {
             return map(order(get<0>(data[i])))<j;
           }
         }
         if (is_set(j)) {
-          if constexpr (hash::unhash_defined::value) {
+          if constexpr (unhash_defined<hash,key_type>::value) {
             return i<map(get<0>(data[j]));
           } else {
             return i<map(order(get<0>(data[j])));
@@ -872,7 +899,7 @@ namespace whash{
         while(true){
           if (i==0) break;
           if (!is_set(i-1)) break;
-          if constexpr (hash::unhash_defined::value) {
+          if constexpr (unhash_defined<hash,key_type>::value) {
             if (get<0>(data[i-1])<ok) break;
           } else {
             if (is_less(get<0>(data[i-1]),k,order(get<0>(data[i-1])),ok)) break; 
@@ -884,7 +911,7 @@ namespace whash{
         while(true){
           if (i+1>=datasize) break;
           if (!is_set(i+1)) break;
-          if constexpr (hash::unhash_defined::value) {
+          if constexpr (unhash_defined<hash,key_type>::value) {
             if (get<0>(data[i+1])>ok) break;
           } else {
             if (is_less(k,get<0>(data[i+1]),ok,order(get<0>(data[i+1])))) break; 
@@ -997,7 +1024,7 @@ namespace whash{
           }
           if (is_equal({k,ok},get<0>(data[mi]))) return mi;
           hash_type omi;
-          if constexpr (hash::unhash_defined::value)
+          if constexpr (unhash_defined<hash,key_type>::value)
             omi = get<0>(data[mi]);
           else
             omi = order(get<0>(data[mi]));
@@ -1013,7 +1040,7 @@ namespace whash{
             is_set_lo = true;
             continue;
           }
-          if constexpr (hash::is_injective::value) {
+          if constexpr (is_injective<hash,hash_type>::value) {
             return ~size_type(0);
           } else {
             if (comparator(k,get<0>(data[mi]))) {
@@ -1042,13 +1069,13 @@ namespace whash{
         assert((mok<datasize)||(datasize==0));
         if (datasize==0) return ~size_type(0);
         if (!is_set(mok)) return ~size_type(0);
-        if constexpr (hash::unhash_defined::value) {
+        if constexpr (unhash_defined<hash,key_type>::value) {
           if (get<0>(data[mok]) == ok) return mok;
         } else {
           if (equator(get<0>(data[mok]),k)) return mok;
         }
         hash_type omi;
-        if constexpr (hash::unhash_defined::value)
+        if constexpr (unhash_defined<hash,key_type>::value)
           omi =       get<0>(data[mok]);
         else
           omi = order(get<0>(data[mok]));
@@ -1125,7 +1152,7 @@ namespace whash{
           const size_type j = n%digits<size_type>();
           if (old_mask[i]&(size_type(1)<<(digits<size_type>()-j-1))){
             size_type l;
-            if constexpr (hash::unhash_defined::value) {
+            if constexpr (unhash_defined<hash,key_type>::value) {
               l = reserve_node(
                   hasher.unhash(get<0>(data[n])),
                   get<0>(old_data[n]));
@@ -1217,14 +1244,14 @@ namespace whash{
         }
         for (size_type i=0;i!=masksize;++i) mask[i]=0;
       }
-      ~patchmap(){                                  // destructor
+      ~patchmap(){                                 // destructor
         allocator_traits<std::allocator<size_type>>::deallocate(
             maskallocator,
             mask,
             masksize);
         allocator_traits<alloc>::deallocate(allocator,data,datasize);
       }
-      patchmap(patchmap&& other) noexcept  // move constructor
+      patchmap(patchmap&& other) noexcept          // move constructor
       {
         mask = nullptr;
         masksize = 0;
@@ -1297,7 +1324,7 @@ namespace whash{
           for (auto it=other.begin();it!=other.end();++it) insert(*it);
         }
       }
-      patchmap(const patchmap& other){
+      patchmap(const patchmap& other){             // copy constructor
         num_data = other.num_data;
         datasize = other.datasize;
         masksize = other.masksize;
@@ -1339,7 +1366,7 @@ namespace whash{
         for (size_type i=0;i!=datasize;++i) {
           cout << std::fixed << std::setprecision(16);
           hash_type ok;
-          if constexpr (hash::unhash_defined::value) ok = get<0>(data[i]);
+          if constexpr (unhash_defined<hash,key_type>::value) ok = get<0>(data[i]);
           else                                       ok = order(get<0>(data[i]));
           const size_type mok = map(ok);
           if (is_set(i)) cout << setw( 6) << i;
@@ -1366,7 +1393,7 @@ namespace whash{
         while(true){
           if (i+1==datasize) break;
           if (!is_set(i+1)) break;
-          if constexpr (hash::unhash_defined::value) {
+          if constexpr (unhash_defined<hash,key_type>::value) {
             if (map(get<0>(data[i+1]))>i) break;
           } else {
             if (map(order(get<0>(data[i+1])))>i) break;
@@ -1378,7 +1405,7 @@ namespace whash{
           while(true){
             if (i==0) break;
             if (!is_set(i-1)) break;
-            if constexpr (hash::unhash_defined::value) {
+            if constexpr (unhash_defined<hash,key_type>::value) {
               if (map(get<0>(data[i-1]))<i) break;  
             } else {
               if (map(order(get<0>(data[i-1])))<i) break;
@@ -1447,7 +1474,7 @@ namespace whash{
         ensure_size();
         const size_type j = reserve_node(k);
         if (VERBOSE_PATCHMAP) cerr << "j = " << j << endl;
-        if constexpr (hash::unhash_defined::value) {
+        if constexpr (unhash_defined<hash,key_type>::value) {
           allocator_traits<alloc>::construct(allocator,data+j,
               order(k),_mapped_type());
         } else {
@@ -1571,7 +1598,7 @@ namespace whash{
           void inline update_hint(){
             if constexpr (!uphold_iterator_validity::value) return;
             if (hint<map->datasize) {
-              if constexpr (hash::unhash_defined::value) {
+              if constexpr (unhash_defined<hash,key_type>::value) {
                 if (map->equator(map->hasher.unhash(get<0>(map->data[hint])),key))
                   return;
               } else {
@@ -1603,13 +1630,13 @@ namespace whash{
               }
             }
             if constexpr (is_same<mapped_type,void>::value) {
-              if constexpr (hash::unhash_defined::value) {
+              if constexpr (unhash_defined<hash,key_type>::value) {
                 key = map->hasher.unhash(get<0>(map->data[hint]));
               } else {
                 key = get<0>(map->data[hint]);
               }
             } else {
-              if constexpr (hash::unhash_defined::value) {
+              if constexpr (unhash_defined<hash,key_type>::value) {
                 key = map->hasher.unhash(get<0>(map->data[hint]));
               } else {
                 key = get<0>(map->data[hint]);
@@ -1889,12 +1916,12 @@ namespace whash{
           auto operator*() {
             update_hint();
             if constexpr (is_same<void,mapped_type>::value) {
-              if constexpr (hash::unhash_defined::value) {
+              if constexpr (unhash_defined<hash,key_type>::value) {
                 return map->hasher.unhash(get<0>(map->data[hint]));
               } else {
                 return get<0>(map->data[hint]);
               }
-            } else if constexpr (hash::unhash_defined::value) {
+            } else if constexpr (unhash_defined<hash,key_type>::value) {
               return pair<const key_type,mapped_type&>(
                   map->hasher.unhash(get<0>(map->data[hint])),
                   get<1>(map->data[hint]));
@@ -1908,14 +1935,14 @@ namespace whash{
           auto operator->() {
             update_hint();
             if constexpr (is_same<void,mapped_type>::value) {
-              if constexpr (hash::unhash_defined::value) {
+              if constexpr (unhash_defined<hash,key_type>::value) {
                 return make_unique<key_type>(
                     map->hasher.unhash(get<0>(map->data[hint]))
                     );
               } else {
                 return &get<0>(map->data[hint]);
               }
-            } else if constexpr (hash::unhash_defined::value) {
+            } else if constexpr (unhash_defined<hash,key_type>::value) {
               return make_unique<pair<const key_type,mapped_type&>>(
                   map->hasher.unhash(get<0>(map->data[hint])),
                   get<1>(map->data[hint]));
@@ -1941,13 +1968,13 @@ namespace whash{
               }
             }
             if constexpr (is_same<void,mapped_type>::value) {
-              if constexpr (hash::unhash_defined::value) {
+              if constexpr (unhash_defined<hash,key_type>::value) {
                 return map->hasher.unhash(map->data[hint].first);
               } else {
                 return map->data[hint].first;
               }
             } else {
-              if constexpr (hash::unhash_defined::value) {
+              if constexpr (unhash_defined<hash,key_type>::value) {
                 return pair<const key_type,mapped_type&>(
                     map->hasher.unhash(get<0>(map->data[hint])),
                     get<1>(map->data[hint]));
@@ -1975,14 +2002,14 @@ namespace whash{
               }
             }
             if constexpr (is_same<void,mapped_type>::value) {
-              if constexpr (hash::unhash_defined::value) {
+              if constexpr (unhash_defined<hash,key_type>::value) {
                 return make_unique<key_type>(
                     map->hasher.unhash(map->data[hint].first));
               } else {
                 return &map->data[hint].first;
               }
             } else {
-              if constexpr (hash::unhash_defined::value) {
+              if constexpr (unhash_defined<hash,key_type>::value) {
                 return make_unique<pair<const key_type,mapped_type&>>(
                     map->hasher.unhash(get<0>(map->data[hint])),
                     get<1>(map->data[hint]));
@@ -1999,7 +2026,7 @@ namespace whash{
     iterator begin(){
       if (datasize==0) return end();
       const size_type i = find_first();
-      if constexpr (hash::unhash_defined::value) {
+      if constexpr (unhash_defined<hash,key_type>::value) {
         return iterator(i,hasher.unhash(get<0>(data[i])),this);
       } else {
         return iterator(i,get<0>(data[i]),this);
@@ -2008,7 +2035,7 @@ namespace whash{
     const_iterator begin() const {
       if (datasize==0) return end();
       const size_type i = find_first();
-      if constexpr (hash::unhash_defined::value) {
+      if constexpr (unhash_defined<hash,key_type>::value) {
         return const_iterator(i,hasher.unhash(get<0>(data[i])),this);
       } else {
         return const_iterator(i,get<0>(data[i]),this);
@@ -2017,7 +2044,7 @@ namespace whash{
     const_iterator cbegin() const {
       if (datasize==0) return cend();
       const size_type i = find_first();
-      if constexpr (hash::unhash_defined::value) {
+      if constexpr (unhash_defined<hash,key_type>::value) {
         return const_iterator(i,hasher.unhash(get<0>(data[i])),this);
       } else {
         return const_iterator(i,get<0>(data[i]),this);
@@ -2050,7 +2077,7 @@ namespace whash{
       if (i<datasize) return {iterator(i,key_of(val),this),false};
       ensure_size();
       const size_type j = reserve_node(key_of(val));
-      if constexpr (hash::unhash_defined::value) {
+      if constexpr (unhash_defined<hash,key_type>::value) {
         if constexpr (is_same<void,mapped_type>::value) {
           allocator_traits<alloc>::construct(allocator,data+j,
               order(key_of(val)),true_type{});
@@ -2171,6 +2198,12 @@ namespace whash{
         const_noconst_iterator<is_const> first,
         const_noconst_iterator<is_const> last){
       for (auto it=first;it!=last;it=erase(it));
+    }
+    const_noconst_iterator<false> find(const key_type& key) {
+      return patchmap::const_noconst_iterator<false>(find_node(key),key,this);
+    }
+    const_noconst_iterator<true > find(const key_type& key) const {
+      return patchmap::const_noconst_iterator<true >(find_node(key),key,this);
     }
     [[deprecated(
         "disabled for performance reasons"
