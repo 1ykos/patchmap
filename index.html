@@ -203,7 +203,24 @@ green { color: green; }
       The most memory efficient datastructure for associations
   </a></h3>
   <p>
-  The most memory efficient data structure to store and access uniformly distributed integers is a sorted array. Using an interpolation search the values can be retrieved in log₂(log₂(n)). Note that this scales with n whereas lookups into a hash table do not scale with n. To have 100% memory efficiency with a hash table one would need to know a perfect hash function for the keys that we want to store in advance, which is not possible in general. Only then this hash table would still be able to retrieve keys in a time independent of the size of the hash table. We can however develop the sorted array into a hash table, more on that later. If you are protesting and think that this is not a real hash table as it does not allow constant time lookups just think of a hash table using chaining and a very high load factor, say 256. It would be a hash table with high memory efficiency and constant but terribly slow lookups. 
+  The most memory efficient data structure to store and access uniformly
+  distributed integers is a sorted array, at least so long we can't use black
+  magic like <a href="https://arxiv.org/pdf/1905.00163.pdf">compact hashing</a>
+  (basically compressing the keys).
+  Using an interpolation search the values can be retrieved in log₂(log₂(n)).
+  Note that this is a function of n whereas lookups into a hash table are
+  independent of n (in the word ram model).
+  To have 100% memory efficiency (again disregarding compact hashing) with a
+  hash table one would need to know a perfect hash function for the keys that
+  we want to store in advance, which is not possible in general.
+  Only then this hash table would still be able to retrieve keys in a time
+  independent of the size of the hash table.
+  We can however develop the sorted array into a hash table, more on that later.
+  If you are protesting and think that this is not a real hash table as it does
+  not allow constant time lookups just think of a hash table using chaining and
+  a very high load factor, say 256.
+  It would be a hash table with high memory efficiency and constant but terribly
+  slow lookups. 
   </p>
   <h3><a name="The best space-time trade-off">The best trade-off between memory usage and speed</a></h3>
   <p>
@@ -2840,20 +2857,60 @@ AElFTkSuQmCC" style="margin-right:2em;min-width:200px;"/>
   </p>
   <h3><a name="The backstory"> The backstory</a></h3>
   <p>
-  Recently I wanted to compute a large number of large histograms. The fastest way of computing histograms involves hash tables. As c++ is my favorite programming language I had chosen <tt>std::unordered_map</tt> as the backend. Everything was going smoothly just as I had imagined but then when I was running the code on my laptop instead of the servers at my institute everything froze. The memory required was around 8 times of what I had anticipated. It turns out I was triggering close to the worst case for the <tt>std::unordered_map</tt> as I was mapping 16-bit values to 16-bit values on a 64-bit machine. The <tt>std::unordered_map</tt> is a chaining hash table which means that for each pair of 16-bit values it needs to store a 64-bit pointer, this creates an especially large overhead in this case. I ended up sorting the values first and then computing the histograms from the sorted arrays, which takes much longer, but uses the minimum amount of memory. But I still had more memory available, I was just using 6 GB out of the 16 GB I had in my laptop. Would it not be great if there was a data structure that could interpolate between the two solutions? Or at least if there was a hash table that was more memory efficient?
+  Recently I wanted to compute a large number of large histograms.
+  The fastest way of computing histograms involves hash tables.
+  As c++ is my favorite programming language I had chosen
+  <tt>std::unordered_map</tt> as the backend.
+  Everything was going smoothly just as I had imagined but then when I was
+  running the code on my laptop instead of the servers at my institute
+  everything froze.
+  The memory required was around 8 times of what I had anticipated.
+  It turns out I was triggering close to the worst case for the
+  <tt>std::unordered_map</tt> as I was mapping 16-bit values to 16-bit values
+  on a 64-bit machine.
+  The <tt>std::unordered_map</tt> is a chaining hash table which means that for
+  each pair of 16-bit values it needs to store a 64-bit pointer,
+  this creates an especially large overhead in this case.
+  I ended up sorting the values first and then computing the histograms from
+  the sorted arrays, which takes much longer, but uses the minimum amount of
+  memory.
+  But I still had more memory available, I was just using 6 GB out of the 16 GB
+  I had in my laptop.
+  Would it not be great if there was a data structure that could interpolate
+  between the two solutions? Or at least if there was a hash table that was more
+  memory efficient?
   </p>
   <p>
-  And before I even found out that there were indeed hash tables that are way more efficient I had an idea that I needed to try.
+  And before I even found out that there were indeed hash tables that are way
+  more efficient I had an idea that I needed to try.
   </p>
   <p>
-  The idea is as has been hinted at to interpolate between a sorted array and a hash table. That is mapping the keys linearly to the hash table and resolving collisions based on the numerical value of the key should they occur. This works well if the keys are uniformly distributed and in this case has the added effect of essentially sorting the keys in O(1) time and O(1) memory, not in place however as for this to work efficiently there is some fractional extra space needed, at least 5% extra would be good.
+  The idea is as has been hinted at to interpolate between a sorted array and
+  a hash table.
+  That is mapping the keys linearly to the hash table and resolving collisions
+  based on the numerical value of the key should they occur.
+  This works well if the keys are uniformly distributed and in this case has
+  the added effect of essentially sorting the keys in O(1) time and O(1) memory,
+  not in place however as for this to work efficiently there is some fractional
+  extra space needed, at least 5% extra would be good.
   </p>
   <h3><a name="Comparing to other approaches">Comparing to other approaches</a></h3>
   <p>
-  This approach might look very similar to the one suggested in &quot;<a href="https://doi.org/10.1093/comjnl/17.2.135" target="_blank">Ordered Hash Tables</a>&quot; (01 January 1974) O. Amble  D. E. Knuth but there is a mayor difference in that the hash tables there are ordered first by the hash of the keys and then by the value of the key. If the entries are however only ordered by the hash value there exists a global order, which all of a sudden allows advanced search strategies like interpolation search and binary search.
+  This approach might sound very similar to the one suggested in
+  &quot;<a href="https://doi.org/10.1093/comjnl/17.2.135" target="_blank">Ordered Hash Tables</a>&quot; (01 January 1974) O. Amble  D. E. Knuth
+  but there is a mayor difference in that the hash tables there are ordered
+  first by the hash of the keys and then by the value of the key.
+  If the entries are however only ordered by the hash value there exists a
+  global order, which all of a sudden allows advanced search strategies like
+  interpolation search and binary search.
   </p>
   <p>
-  In fact the approach is much more similar to robin hood hashing with linear probing because if two keys collide at the same position the key whose hash value is lower will also have been displaced more and will therefore displace the key with the larger hash value, therefore keeping up the same order. There has however been no hash table using robin hood hashing with linear probing that takes advantage of this fact.
+  In fact the approach is much more similar to robin hood hashing with linear
+  probing because if two keys collide at the same position the key whose hash
+  value is lower will also have been displaced more and will therefore displace
+  the key with the larger hash value, therefore keeping up the same order.
+  There has however been no hash table using robin hood hashing with linear
+  probing that takes advantage of this fact.
   </p>
   <h3><a name="Availability">Availability</a></h3>
   <p>
@@ -2920,10 +2977,17 @@ AElFTkSuQmCC" style="margin-right:2em;min-width:200px;"/>
   need to be moved, making the grow operation even cheaper. If only there was a
   way to generalise this trick to arbitrary hash table sizes!
   </p>
-  <h4></h4>
-  <p></p>
-  <h4></h4>
-  <p></p>
+  <h4><red>compact hashing</red></h4>
+  <p>
+  The insertion scheme of the patchmap minimises the offset of the hash of the
+  key to the position, mapped to the range of available buckets.
+  This means that roughly <tt>floor(log2(n))</tt> bits of the key can be guessed
+  from the where the key is stored.
+  Only storing the differences between the hash and the hash that would be
+  expected at a given position could save <tt>floor(log2(n))</tt> per key.
+  At least in theory this is how compact hashing could be adapted to the
+  patchmap. The devil is in the details, mainly in the alignment. 
+  </p>
   </p>
 </article>
 </section>
