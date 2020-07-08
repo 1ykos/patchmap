@@ -176,50 +176,56 @@ green { color: green; }
  </ul>
 </div>
 <div class="content">
-  <h2 style="text-align: center;">Memory Efficient Hash Tables
-  <br>and Pseudorandom Ordering</h2>
-
+  <h2 style="text-align: center;">Memory Efficient Hash Tables<br>
+                                  and Pseudorandom Ordering</h2>
   <h2><a name="The best hash table">What makes a hash table good?</a></h3>
   <p>
-  A hash table is commonly used to associate keys with values to implement
-  dictionaries or to test if a key is part of a set of keys to implement set
-  operations. To achieve this the keys or key-value pairs are stored at a
-  pseudorandom position determined first by a hash of the key and then either
-  storing all the entries that map to the same position in a secondary data
-  structure (this method is called chaining) or by a probing strategy that finds
-  another free position. The first step creats a cache miss. A cache
-  miss is when data, that cannot be found in any of the caches of the CPU,
-  is requested. The time this takes is around 300 CPU cycles and typically
-  determines the performance of a hash table. It cannot be avoided due to the
-  pseudorandom nature of hashing. The second step however occurs more frequently
-  the fuller the table becomes, it is a function of the load factor α.
+  A hash table is a data struture commonly used to associate keys with values
+  to implement dictionaries or to test if a key is part of a set of keys to
+  implement set operations.
+  The best hash table is the one that enables these operations at the lowest
+  cost.
+  Cost in computing essentially is two-dimensionsional, time and space.
+  Keys or key-value pairs are stored at a pseudorandom position determined
+  first by the hash of the key and then either storing all the entries that map
+  to the same position in a secondary data structure
+  (this method is called chaining) or by a probing strategy that finds
+  another free position.
+  The first step creats a cache miss.
+  A cache miss is when data, that cannot be found in any of the caches of the
+  CPU, is requested.
+  The time this takes is around 300 CPU cycles and typically determines the
+  performance of a hash table.
+  It cannot be avoided due to the pseudorandom nature of hashing.
+  The second step however occurs more frequently the fuller the table becomes,
+  it is a function of the load factor α.
   The load factor is defined as the number of elements stored in the table
   divided by the total number of positions available in the table. Therefore,
-  for a given hash function that is not degenerate, the largest table is also
-  the fastest because it has to resolve the least collisions, leading to the
-  least amount of cache misses.
+  for a given hash function and and collision resolution scheme, the larger
+  table is also faster because it has to resolve the less collisions,
+  and therefore less cache misses.
   </p>
   <h3><a name="Memory efficient associations">
       The most memory efficient datastructure for associations
   </a></h3>
   <p>
-  The most memory efficient data structure to store and access uniformly
-  distributed integers is a sorted array, at least so long we can't use black
-  magic like <a href="https://arxiv.org/pdf/1905.00163.pdf">compact hashing</a>
-  (basically compressing the keys).
-  Using an interpolation search the values can be retrieved in log₂(log₂(n)).
+  The data structure to that takes up the least space to store uniformly
+  distributed integers whilst still allowing fast and access is a sorted array,
+  at least so long we don't use black magic like
+  <a href="https://arxiv.org/pdf/1905.00163.pdf">compact hashing</a>
+  (essentially compressing the keys).
+  The values can be retrieved in O(log₂(log₂(n))) with an interpolation search.
   Note that this is a function of n whereas lookups into a hash table are
-  independent of n (in the word ram model).
-  To have 100% memory efficiency (again disregarding compact hashing) with a
-  hash table one would need to know a perfect hash function for the keys that
-  we want to store in advance, which is not possible in general.
+  independent of n (under the word ram model).
+  To have 100% memory efficiency (without compression) with a hash table one
+  would need to know a perfect (=collision free and minimal) hash function
+  for the keys that we want to store.
   Only then this hash table would still be able to retrieve keys in a time
   independent of the size of the hash table.
-  We can however develop the sorted array into a hash table, more on that later.
-  If you are protesting and think that this is not a real hash table as it does
-  not allow constant time lookups just think of a hash table using chaining and
-  a very high load factor, say 256.
-  It would be a hash table with high memory efficiency and constant but terribly
+  If you are protesting and say that a sorted array is not a real hash table as
+  it does not allow constant time lookups you can also think of a hash table
+  using chaining and a very high load factor, say 256.
+  It would be a hash table with high memory efficiency and constant but very
   slow lookups. 
   </p>
   <h3><a name="The best space-time trade-off">The best trade-off between memory usage and speed</a></h3>
@@ -228,7 +234,7 @@ green { color: green; }
   memory efficient, we are looking for the hash table that has the best
   trade-off between space and time. Asymptotically the best trade-off between
   space and time is the one that has the lowest product of the the two. Imagine
-  building a big server that does nothing but search entries in a hash table.
+  building a big server that does nothing but searching entries in a hash table.
   Say the hash table is very large so that the offset of the price for the CPU
   and the other hardware will be dwarfed by the cost of the RAM. The server will
   have a finite life-time, therefore the cost of a single lookup into the hash
@@ -248,11 +254,23 @@ green { color: green; }
   </p>
   <h2><a name="The patchmap">The <tt>patchmap</tt> </a></h2>
   <p>
-  The <tt>patchmap</tt> is my attempt at achieving this magical smallest space-time. Recently I was frustrated with the performance of <tt>std::unordered_map</tt> and before I could even test other hash tables I had come up with an idea of how to save space that I needed to try. Let's first look at how it compares, then at the algorithm, more about the motivation later.
+  The <tt>patchmap</tt> is my attempt at achieving this magical smallest
+  space-time. Recently I was frustrated with the performance of
+  <tt>std::unordered_map</tt> and before I could even test other hash tables
+  I had come up with an idea of how to save space that I needed to try.
+  Let's first look at how it compares, then at the algorithm, more about the
+  motivation later.
   </p>
   <h3><a name="Performance comparison">Performance compared to other hash tables</a></h3>
   <p>
-  I designed a small benchmark to be as fair and comprehensive as possible. Only random keys can produce comparable memory access patterns across different hash table implementations using different hash functions and probing strategies, keep in mind however that this masks bad hash functions. For the following benchmark 2²⁶ random 64 bit keys were associated with arbitrary 64 bit values. The average memory consumption and time for insertion, lookup and deletion per key-value pair can be found in the plots below for the different hash tables.
+  I designed a small benchmark to be as fair and comprehensive as possible.
+  Only random keys can produce comparable memory access patterns across
+  different hash table implementations using different hash functions and
+  probing strategies, keep in mind however that this masks bad hash functions.
+  For the following benchmark 2²⁶ random 64 bit keys were associated with 
+  arbitrary 64 bit values. The average memory consumption and time for
+  insertion, lookup and deletion per key-value pair can be found in the plots
+  below for the different hash tables.
   </p>
   <a name="Figure 1">
   <div class="flex-wrap-container">
