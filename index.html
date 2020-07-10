@@ -217,16 +217,14 @@ green { color: green; }
   The values can be retrieved in O(log₂(log₂(n))) with an interpolation search.
   Note that this is a function of n whereas lookups into a hash table are
   independent of n (under the word ram model).
-  To have 100% memory efficiency (without compression) with a hash table one
+  To have 100% memory efficiency (without compression) using a hash table one
   would need to know a perfect (=collision free and minimal) hash function
   for the keys that we want to store.
   Only then this hash table would still be able to retrieve keys in a time
   independent of the size of the hash table.
-  If you are protesting and say that a sorted array is not a real hash table as
-  it does not allow constant time lookups you can also think of a hash table
-  using chaining and a very high load factor, say 256.
-  It would be a hash table with high memory efficiency and constant but very
-  slow lookups. 
+  A hash table at a high load factor, say 256, and using chaining, still has a
+  high memory efficiency, better than all hash tables I have seen being actually
+  used, but terribly slow lookups.
   </p>
   <h3><a name="The best space-time trade-off">The best trade-off between memory usage and speed</a></h3>
   <p>
