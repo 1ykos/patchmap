@@ -209,46 +209,39 @@ green { color: green; }
       The most memory efficient datastructure for associations
   </a></h3>
   <p>
-  The data structure to that takes up the least space to store uniformly
-  distributed integers whilst still allowing fast access is a sorted array,
-  at least so long we don't use black magic like
-  <a href="https://arxiv.org/pdf/1905.00163.pdf">compact hashing</a>
-  (essentially compressing the keys).
-  The values can be retrieved in O(log₂(log₂(n))) with an interpolation search.
-  Note that this is a function of n whereas lookups into a hash table are
-  independent of n (under the word ram model).
-  To have 100% memory efficiency (without compression) using a hash table one
-  would need to know a perfect (=collision free and minimal) hash function
-  for the keys that we want to store.
-  Only then this hash table would still be able to retrieve keys in a time
-  independent of the size of the hash table.
-  A hash table at a high load factor, say 256, and using chaining, still has a
-  high memory efficiency, better than all hash tables I have seen being actually
-  used, but terribly slow lookups.
+  The hash table with the best memory efficiency is simply the one with the
+  highest load factor, (it can even exceed 100% memory efficiency by using key
+  compression with <a href="https://arxiv.org/pdf/1905.00163.pdf">compact hashing</a> ).
+  A hash table like that does still provide O(1) lookups, just very slow.
+  This is also not what we are looking for when looking for the best hash table.
   </p>
   <h3><a name="The best space-time trade-off">The best trade-off between memory usage and speed</a></h3>
   <p>
-  We realize that we are not looking for the fastest hash table or the most
-  memory efficient, we are looking for the hash table that has the best
-  trade-off between space and time. Asymptotically the best trade-off between
-  space and time is the one that has the lowest product of the the two. Imagine
-  building a big server that does nothing but searching entries in a hash table.
+  I argue that the best hash table is not the fastest or the most memory
+  efficient, but the one with the best trade-off between space and time.
+  Asymptotically the best trade-off between space and time is the one that has
+  the lowest product of the the two.
+  Imagine building a big server that does nothing but searching entries in a
+  hash table.
   Say the hash table is very large so that the offset of the price for the CPU
-  and the other hardware will be dwarfed by the cost of the RAM. The server will
-  have a finite life-time, therefore the cost of a single lookup into the hash
-  table will be directly proportional to the product of the time it takes to
-  access an element and the amount of space the hash table needs per element.
+  and the other hardware will be dwarfed by the cost of the RAM.
+  The server will have a finite life-time, therefore the cost of a single
+  lookup into the hash table will be directly proportional to the product of the
+  time it takes to access an element and the amount of space the hash table
+  needs per element.
   Let's call this concept the space-time.
   </p>
   <p>
-  If the space-time is too abstract of a concept to grasp let's take a common
-  task we all probably do from time to time: Finding hash collisions by brute
-  force. By first computing as many hashes as fit in memory and then
-  - using a hash table - comparing to all of them at the same time with a single
-  lookup for each newly computed hash. Say we can neglect the time to compute a
-  hash, then the performance can be expressed as the number of comparisons that
-  can be done per unit of time. That number is, not incidentally, proportional
-  to the reciprocal of the space-time.
+  If the space-time seems too abstract let's take a common task we all probably
+  do from time to time:
+  Finding hash collisions by brute force.
+  By first computing as many hashes as fit in memory and then - using a hash
+  table - comparing to all of them at the same time with a single
+  lookup for each newly computed hash.
+  Say we can neglect the time to compute a hash, then the performance can be
+  expressed as the number of comparisons that can be done per unit of time.
+  That number is, not incidentally, proportional to the reciprocal of the
+  space-time.
   </p>
   <h2><a name="The patchmap">The <tt>patchmap</tt> </a></h2>
   <p>
