@@ -510,7 +510,7 @@ namespace whash{
       typedef typename alloc::const_reference const_reference;
       typedef typename alloc::difference_type difference_type;
       typedef typename alloc::size_type size_type;
-      typedef typename std::result_of<hash(key_type)>::type hash_type;
+      typedef typename std::invoke_result<hash,key_type&>::type hash_type;
       typedef typename conditional<is_same<mapped_type,void>::value,
                                   std::true_type,
                                   mapped_type>::type
@@ -923,7 +923,7 @@ namespace whash{
       }
       size_type inline reserve_node(
           const key_type&   k,
-          const hash_type& ok){
+          const hash_type& ok) {
         const hash_type mok = map(ok);
         return reserve_node(k,ok,mok);
       }
@@ -965,6 +965,7 @@ namespace whash{
           ) const {
         assert(lo<=hi||datasize==0);
         size_type mi;
+        //for (size_t i=0;;++i) {
         while(true) {
           if (hi-lo<8) {
             if (hi-lo<4) {
@@ -972,14 +973,14 @@ namespace whash{
                 if (hi-lo<1) {
                   if (is_set(lo))
                     if (is_equal({k,ok},get<0>(data[lo]))) return lo;
-                  return ~size_type(0);
+                  break;
                 } else {
                   if (is_set_lo&&is_set_hi) return ~size_type(0);
                   if (is_set(lo))
                     if (is_equal({k,ok},get<0>(data[lo]))) return lo;
                   if (is_set(hi))
                     if (is_equal({k,ok},get<0>(data[hi]))) return hi;
-                  return ~size_type(0);
+                  break;
                 }
               } else {
                 mi = lo + ((hi-lo)>>1);
@@ -992,12 +993,18 @@ namespace whash{
               } else if (is_set_hi) {
                 mi = hi - ((hi-lo+2)>>2);
               } else {
-                return ~size_type(0);
+                break;
               } 
             }
           } else {
             if (is_set_hi && is_set_lo) {
               mi = interpol(ok,olo,ohi,lo,hi);
+              // use:
+              //if (i%4==3) mi = lo + ((hi-lo)>>1);
+              //else        mi = interpol(ok,olo,ohi,lo,hi);
+              //  to get around the O(n) worst case of interpolation search
+              //  which is only theoretically possible with key sizes much
+              //  greater than log(n) and even then exponentially unlikely.
             } else if (is_set_lo) {
               const size_type st = map_diff(ok,olo);
               mi = lo+st<hi?lo+st:hi;
@@ -1005,7 +1012,7 @@ namespace whash{
               const size_type st = map_diff(ohi,ok);
               mi = lo+st<hi?hi-st:lo;
             } else {
-              return ~size_type(0);
+              break;
             }
             mi = clip(mi,lo+1,hi-1);
           }
@@ -1020,7 +1027,7 @@ namespace whash{
               is_set_hi=false;
               continue;
             }
-            return ~size_type(0);
+            break;
           }
           if (is_equal({k,ok},get<0>(data[mi]))) return mi;
           hash_type omi;
@@ -1041,7 +1048,7 @@ namespace whash{
             continue;
           }
           if constexpr (is_injective<hash,hash_type>::value) {
-            return ~size_type(0);
+            break;
           } else {
             if (comparator(k,get<0>(data[mi]))) {
               hi = mi;
@@ -1056,9 +1063,9 @@ namespace whash{
               continue;
             }
           }
-          return ~size_type(0);
+          break;
         }
-        return ~size_t(0);
+        return ~size_type(0);
       }
 
       size_type inline find_node(
