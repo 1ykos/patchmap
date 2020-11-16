@@ -2161,7 +2161,7 @@ green { color: green; }
   </p>
   <h3>Example: Inserting into a patch</h3>
   <p>
-  To know which buckets in the table are set and which are not one could reserve a special value like the google implementations do for an empty key. But I have decided to use a binary mask that indicates whether an entry is set or not, because I do not want to impose any restrictions on the keys that can be stored in the hash table. If there were one value of the key that was impossible, like say the <tt>nullptr</tt> it could be used to indicate an empty position, like is being done in the hash table implementations of google.
+  To know which buckets in the table are set and which are not one could reserve a special value like the google implementations do for an empty key. But I have decided to use a binary mask that indicates whether an entry is set or not, because I do not want to impose any restrictions on the keys that can be stored in the hash table. If there was one value of the key that was impossible, like say the <tt>nullptr</tt> it could be used to indicate an empty position, like is being done in the hash table implementations of google.
   </p>
   <p>
   When inserting into the <tt>patchmap</tt> it goes something like this:
@@ -2182,7 +2182,7 @@ hash&nbsp;&nbsp;...__455678__...<br>
 mask&nbsp;&nbsp;...--++++++--...<br>
   </tt>
   </span>
-  <h4>First step of inseting the key <b>1</b> with hash value of <b>5</b></h4>
+  <h4>First step of inseting the key <b>1</b> with hash value <b>7</b></h4>
   <span style='font-size: large;'>
   <tt>
 key&nbsp;&nbsp;&nbsp;...__2579361__...<br>
